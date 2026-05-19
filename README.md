@@ -2,6 +2,21 @@
 
 Python helper scripts for cleaning Shadow View CSV exports.
 
+## Local Folders
+
+The command examples use these local folders:
+
+- `data/`: put raw Shadow View CSV exports here.
+- `output/`: cleaned files are written here.
+
+Create them before running the CLI examples:
+
+```bash
+mkdir -p data output
+```
+
+The Windows desktop app does not require these folders. It lets the user choose the input CSV and save locations through the UI.
+
 ## Co-Traveler Usage
 
 Run the Co-Traveler CSV Cleaner with standard-library Python:
