@@ -134,6 +134,45 @@ The Windows build uses `assets/shadow_view_cleaner_icon.ico` as the app icon. To
 python3 scripts/generate_app_icon.py
 ```
 
+## Shadow View Map Web App
+
+The Kepler.gl map MVP lives in `web_app/`. It lets a user upload a raw Shadow View CSV, choose a device/BSSID, and view:
+
+- Mapped sightings for the selected device.
+- A time-ordered trail between sightings.
+- Original CSV row details for the selected sighting.
+- Parse status, rows scanned, rows mapped, skipped rows, and time taken.
+
+Run it locally:
+
+```bash
+cd web_app
+npm install
+npm run dev
+```
+
+Open the local URL printed by Vite, usually:
+
+```text
+http://127.0.0.1:5173/
+```
+
+Build the production web bundle:
+
+```bash
+cd web_app
+npm run build
+```
+
+The app uses a blank local map style by default so the device trail still works without a network connection or map token. If a full basemap is needed later, set `VITE_MAPBOX_TOKEN` before running or building and update the Kepler map style settings.
+
+Run the web app smoke test:
+
+```bash
+cd web_app
+npm test
+```
+
 ## Configuration
 
 Editable cleanup rules live in:
