@@ -16,6 +16,14 @@ To also create a color-coded HTML preview:
 python3 scripts/clean_shadow_view_csv.py data/dummy_data.csv output/cleaned_dummy_data.csv --html-output output/cleaned_dummy_data.html
 ```
 
+## Tests
+
+Run the standard-library test suite:
+
+```bash
+python3 -m unittest discover -s tests
+```
+
 ## Configuration
 
 Editable cleanup rules live in `config/shadow_view_cleaner.toml`.
@@ -24,7 +32,7 @@ Use that file to change:
 
 - Raw CSV column aliases, such as renaming `Accuracy` to `Accuracy Meters`.
 - Output columns and output header names.
-- Sorting rules. Sorting is currently disabled by default, with an available rule for `MGRS Unique Count` greatest to least.
+- Sorting rules. The current default sorts `MGRS Unique Count` greatest to least.
 - The grouping key used to condense raw rows.
 - HTML color-bucket settings.
 

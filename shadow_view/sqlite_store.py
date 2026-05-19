@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import math
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -36,7 +37,7 @@ def quote_literal(value: str) -> str:
 
 
 def format_whole_number(value: float) -> str:
-    return str(round(value))
+    return str(math.floor(value + 0.5))
 
 
 def apply_sort_value_type(expression: str, value_type: str) -> str:

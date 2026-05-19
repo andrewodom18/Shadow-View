@@ -6,6 +6,7 @@ import argparse
 import csv
 import sqlite3
 import sys
+import time
 from pathlib import Path
 
 from .cleaner import clean_csv
@@ -39,6 +40,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv or sys.argv[1:])
+    start_time = time.perf_counter()
     try:
         result = clean_csv(
             args.input_csv,
@@ -50,7 +52,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 
-    print(f"Processed {result.rows_processed} rows.")
+    elapsed_seconds = time.perf_counter() - start_time
+    print(f"Processed {result.rows_processed} rows in {elapsed_seconds:.2f}s.")
     print(f"Wrote cleaned CSV: {args.output_csv}")
     if args.html_output is not None:
         print(f"Wrote HTML preview: {args.html_output}")

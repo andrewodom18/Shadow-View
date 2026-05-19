@@ -52,9 +52,8 @@ computed = "unique_mgrs_count"
 header = "MGRS Unique Count"
 
 [sort]
-# Sorting is off by default so rows stay in first-seen BSSID order.
-# To sort by MGRS Unique Count greatest to least, set enabled = true.
-enabled = false
+# Sort by MGRS Unique Count greatest to least.
+enabled = true
 case_sensitive = false
 rules = [
   { column = "MGRS Unique Count", direction = "desc", value_type = "number" }

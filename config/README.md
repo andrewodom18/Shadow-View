@@ -172,25 +172,23 @@ This changes only the cleaned output header. It does not change which raw input 
 
 ## Changing Sort Rules
 
-Sorting is controlled by `[sort]`. Sorting is currently off by default.
+Sorting is controlled by `[sort]`. The current default sorts `MGRS Unique Count` greatest to least.
 
 Current setting:
 
 ```toml
 [sort]
-enabled = false
+enabled = true
 case_sensitive = false
 rules = [
   { column = "MGRS Unique Count", direction = "desc", value_type = "number" }
 ]
 ```
 
-With `enabled = false`, grouped rows stay in first-seen BSSID order instead of being sorted A-Z.
-
-To sort by `MGRS Unique Count` greatest to least, change only this line:
+To turn sorting off and keep grouped rows in first-seen BSSID order, change only this line:
 
 ```toml
-enabled = true
+enabled = false
 ```
 
 Sort rules use:
