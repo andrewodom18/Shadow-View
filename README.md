@@ -128,6 +128,12 @@ Copy that `.exe` to the USB drive. Target computers do not need Python installed
 
 The cleaner logic remains in the importable `shadow_view` package, so the same code is still ready for the future Shadow View website backend.
 
+The Windows build uses `assets/shadow_view_cleaner_icon.ico` as the app icon. To regenerate the icon assets:
+
+```bash
+python3 scripts/generate_app_icon.py
+```
+
 ## Configuration
 
 Editable cleanup rules live in:

@@ -9,6 +9,7 @@ py -m PyInstaller ^
   --onefile ^
   --windowed ^
   --name "Shadow View CSV Cleaner" ^
+  --icon "assets\shadow_view_cleaner_icon.ico" ^
   --add-data "config;config" ^
   scripts\shadow_view_cleaner_app.py
 
