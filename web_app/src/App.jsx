@@ -1,4 +1,4 @@
-import KeplerGl from '@kepler.gl/components';
+import {KeplerGl} from '@kepler.gl/components';
 import {addDataToMap} from '@kepler.gl/actions';
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useDispatch} from 'react-redux';
