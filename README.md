@@ -94,6 +94,15 @@ Build a Windows `.exe` on a Windows machine:
 scripts\build_windows_app.bat
 ```
 
+Or build it from GitHub on any computer, including a Mac:
+
+1. Push the repo to GitHub.
+2. Open the repo's **Actions** tab.
+3. Select **Build Windows App**.
+4. Click **Run workflow**.
+5. Open the completed run.
+6. Download the artifact named **Shadow View CSV Cleaner - Windows**.
+
 That creates:
 
 ```text
