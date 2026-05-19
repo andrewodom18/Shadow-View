@@ -1,0 +1,65 @@
+# Shadow View CSV cleaner configuration.
+#
+# The script uses canonical names internally, but each canonical name can have
+# multiple aliases so input exports can change their column wording over time.
+# Add new aliases here when a raw CSV header changes.
+
+[input_columns]
+bssid = ["BSSID"]
+ssid = ["SSID"]
+accuracy = ["Accuracy"]
+event_time = ["Event Time"]
+device_name = ["Device Name"]
+mgrs = ["MGRS"]
+
+[sighting_count]
+# Device rows are grouped by this canonical column when calculating sightings.
+# Current rule: total sightings per BSSID, not unique MGRS locations.
+device_key = "bssid"
+
+[[output_columns]]
+source = "bssid"
+header = "BSSID"
+
+[[output_columns]]
+source = "ssid"
+header = "SSID"
+
+[[output_columns]]
+source = "accuracy"
+header = "Accuracy"
+
+[[output_columns]]
+source = "event_time"
+header = "Event Time"
+
+[[output_columns]]
+source = "device_name"
+header = "Device Name"
+
+[[output_columns]]
+computed = "total_sightings"
+header = "MGRS Unique Count"
+
+[sort]
+# Change this list to alter A-Z ordering. Values can be canonical input column
+# names such as device_name, ssid, bssid, event_time, or output headers.
+columns = ["device_name", "ssid", "bssid", "event_time"]
+case_sensitive = false
+
+[color_coding]
+enabled = true
+event_time_column = "event_time"
+bucket_minutes = 30
+
+# Used only when an HTML preview is requested. CSV files cannot store colors.
+palette = [
+  "#fff2cc",
+  "#d9ead3",
+  "#cfe2f3",
+  "#eadcf8",
+  "#f4cccc",
+  "#d0e0e3",
+  "#fce5cd",
+  "#d9d2e9"
+]
