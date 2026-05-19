@@ -28,6 +28,7 @@ from .sqlite_store import (
     create_indexes,
     create_observations_table,
     ingest_csv,
+    register_aggregates,
 )
 
 
@@ -57,27 +58,60 @@ def read_header(input_path: Path) -> list[str]:
 
 
 def resolve_input_indexes(
+    input_path: Path,
     raw_header: list[str],
     aliases: dict[str, list[str]],
     required: set[str],
+    sample_limit: int = 1000,
 ) -> dict[str, int]:
-    normalized_header: dict[str, int] = {}
+    normalized_header: dict[str, list[int]] = {}
     for index, header in enumerate(raw_header):
-        normalized_header.setdefault(normalize_name(header), index)
+        normalized_header.setdefault(normalize_name(header), []).append(index)
 
-    resolved: dict[str, int] = {}
+    candidates: dict[str, list[int]] = {}
     for canonical, possible_names in aliases.items():
+        indexes: list[int] = []
         for possible_name in possible_names:
-            header_index = normalized_header.get(normalize_name(possible_name))
-            if header_index is not None:
-                resolved[canonical] = header_index
-                break
+            indexes.extend(normalized_header.get(normalize_name(possible_name), []))
+        if indexes:
+            candidates[canonical] = list(dict.fromkeys(indexes))
 
-    missing = sorted(canonical for canonical in required if canonical not in resolved)
+    missing = sorted(canonical for canonical in required if canonical not in candidates)
     if missing:
         raise CleanerError(
             "Input CSV is missing required columns or aliases: " + ", ".join(missing)
         )
+
+    duplicate_candidates = {
+        canonical: indexes for canonical, indexes in candidates.items() if len(indexes) > 1
+    }
+    if not duplicate_candidates:
+        return {canonical: indexes[0] for canonical, indexes in candidates.items()}
+
+    non_empty_counts = {
+        canonical: {index: 0 for index in indexes}
+        for canonical, indexes in duplicate_candidates.items()
+    }
+
+    with input_path.open(newline="", encoding="utf-8-sig") as input_file:
+        reader = csv.reader(input_file)
+        next(reader, None)
+        for row_number, row in enumerate(reader, start=1):
+            for canonical, indexes in duplicate_candidates.items():
+                for index in indexes:
+                    if index < len(row) and row[index].strip():
+                        non_empty_counts[canonical][index] += 1
+            if row_number >= sample_limit:
+                break
+
+    resolved: dict[str, int] = {}
+    for canonical, indexes in candidates.items():
+        if canonical in non_empty_counts:
+            resolved[canonical] = max(
+                indexes, key=lambda index: (non_empty_counts[canonical][index], -index)
+            )
+        else:
+            resolved[canonical] = indexes[0]
 
     return resolved
 
@@ -143,7 +177,7 @@ def clean_csv(
     aliases = configured_aliases(config)
     required = required_canonical_columns(config, columns, html_output is not None)
     raw_header = read_header(input_csv)
-    input_indexes = resolve_input_indexes(raw_header, aliases, required)
+    input_indexes = resolve_input_indexes(input_csv, raw_header, aliases, required)
 
     store_columns = [canonical for canonical in aliases if canonical in required]
     headers = [column["header"] for column in columns]
@@ -152,6 +186,7 @@ def clean_csv(
         db_path = Path(temp_dir) / "shadow_view.sqlite3"
         connection = sqlite3.connect(db_path)
         try:
+            register_aggregates(connection)
             create_observations_table(connection, store_columns)
             row_count = ingest_csv(input_csv, connection, store_columns, input_indexes)
             create_indexes(connection, store_columns, config)

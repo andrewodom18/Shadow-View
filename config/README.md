@@ -36,6 +36,92 @@ With this setting, the cleaner will accept any of these raw CSV headers for the 
 
 Aliases are matched case-insensitively and extra spaces around headers are ignored.
 
+If an export contains duplicate matching headers, the cleaner samples the first rows and uses the matching column with the most non-empty values. This handles exports that include repeated headers such as `Bssid`, `Accuracy`, `Device Name`, or `Ssid`.
+
+## Grouping Rows
+
+Grouped output is controlled by `[grouping]`.
+
+```toml
+[grouping]
+enabled = true
+key = "bssid"
+multi_value_separator = " | "
+```
+
+With this enabled, the cleaner writes one output row per BSSID. If a regular text field has more than one value for the same BSSID, the values are combined into a separated list.
+
+Example output:
+
+```text
+CoffeeGuest | CoffeeGuest-Backup
+```
+
+Change `multi_value_separator` if another separator is preferred.
+
+## Output Column Aggregates
+
+Each cleaned output column is defined by one `[[output_columns]]` block.
+
+When grouping is enabled, source columns can define an `aggregate`.
+
+Supported aggregates:
+
+- `group_key`: use the grouped value directly. Use this for `BSSID`.
+- `distinct_list`: combine unique non-empty values into a separated list.
+- `average`: average numeric values and round to the nearest whole number. Use this for `Accuracy`.
+- `datetime_range`: output the first-to-last event datetime range. Use this for `Event Time`.
+
+Current examples:
+
+```toml
+[[output_columns]]
+source = "bssid"
+header = "BSSID"
+aggregate = "group_key"
+
+[[output_columns]]
+source = "accuracy"
+header = "Accuracy"
+aggregate = "average"
+
+[[output_columns]]
+source = "event_time"
+header = "Event Time"
+aggregate = "datetime_range"
+```
+
+If `aggregate` is omitted while grouped output is enabled, the cleaner defaults to:
+
+- `group_key` for the configured grouping key.
+- `average` for `accuracy`.
+- `datetime_range` for `event_time`.
+- `distinct_list` for other source columns.
+
+## Computed Columns
+
+Computed columns are values created by the script instead of copied directly from the raw CSV.
+
+Current supported computed columns:
+
+```toml
+[[output_columns]]
+computed = "unique_mgrs_count"
+header = "MGRS Unique Count"
+```
+
+`unique_mgrs_count` counts distinct non-empty MGRS values for each grouped BSSID.
+
+This computed column is also supported if a future config needs it:
+
+```toml
+[[output_columns]]
+computed = "total_sightings"
+header = "Total Sightings"
+```
+
+`[sighting_count]` is kept for the non-grouped mode. With the current grouped output, leave `[grouping].key` set to `bssid` unless the grouping behavior itself should change.
+
 ## Adding A New Raw Column
 
 If Shadow View adds a new raw column, add a new canonical name under `[input_columns]`.
@@ -53,11 +139,10 @@ Then add it to the output if it should appear in the cleaned CSV:
 [[output_columns]]
 source = "device_battery"
 header = "Device Battery"
+aggregate = "distinct_list"
 ```
 
 ## Removing An Output Column
-
-Each cleaned output column is defined by one `[[output_columns]]` block.
 
 To stop exporting `SSID`, remove or comment out this block:
 
@@ -65,9 +150,10 @@ To stop exporting `SSID`, remove or comment out this block:
 [[output_columns]]
 source = "ssid"
 header = "SSID"
+aggregate = "distinct_list"
 ```
 
-If a removed column is also listed in `[sort]`, remove it from `sort.columns` too.
+If a removed column is also listed in `[sort].rules`, remove that sort rule too.
 
 ## Renaming An Output Header
 
@@ -78,79 +164,53 @@ Example:
 ```toml
 [[output_columns]]
 source = "accuracy"
-header = "Accuracy Meters"
+header = "Average Accuracy"
+aggregate = "average"
 ```
 
 This changes only the cleaned output header. It does not change which raw input column is read.
 
-## Computed Columns
-
-Computed columns are values created by the script instead of copied directly from the raw CSV.
-
-Current supported computed column:
-
-```toml
-[[output_columns]]
-computed = "total_sightings"
-header = "MGRS Unique Count"
-```
-
-Right now, `MGRS Unique Count` is intentionally configured as total sightings per device. The device is grouped by the value in `[sighting_count].device_key`.
-
-To make the header clearer, rename it:
-
-```toml
-[[output_columns]]
-computed = "total_sightings"
-header = "Total Sightings"
-```
-
-## Changing The Sighting Device Key
-
-The sighting count groups rows by this canonical column:
-
-```toml
-[sighting_count]
-device_key = "bssid"
-```
-
-For example, changing this to `device_name` would count total sightings per device name instead of per BSSID:
-
-```toml
-[sighting_count]
-device_key = "device_name"
-```
-
-Use `bssid` unless there is a strong reason to group by something else.
-
 ## Changing Sort Rules
 
-Sorting is controlled by `[sort]`.
+Sorting is controlled by `[sort]`. Sorting is currently off by default.
 
-Current sort:
-
-```toml
-[sort]
-columns = ["device_name", "ssid", "bssid", "event_time"]
-case_sensitive = false
-```
-
-This sorts A-Z by:
-
-1. Device Name
-2. SSID
-3. BSSID
-4. Event Time
-
-To sort by BSSID first:
+Current setting:
 
 ```toml
 [sort]
-columns = ["bssid", "event_time"]
+enabled = false
 case_sensitive = false
+rules = [
+  { column = "MGRS Unique Count", direction = "desc", value_type = "number" }
+]
 ```
 
-Sort columns can be canonical names like `device_name`, or output headers like `Device Name`.
+With `enabled = false`, grouped rows stay in first-seen BSSID order instead of being sorted A-Z.
+
+To sort by `MGRS Unique Count` greatest to least, change only this line:
+
+```toml
+enabled = true
+```
+
+Sort rules use:
+
+- `column`: a canonical source name such as `bssid`, or an output header such as `MGRS Unique Count`.
+- `direction`: `asc` or `desc`.
+- `value_type`: `text`, `number`, or `datetime`.
+
+To sort by BSSID A-Z instead:
+
+```toml
+[sort]
+enabled = true
+case_sensitive = false
+rules = [
+  { column = "bssid", direction = "asc", value_type = "text" }
+]
+```
+
+When grouped output is enabled, sort columns should refer to output columns by canonical source name or output header.
 
 ## Changing Color Coding
 
@@ -162,6 +222,8 @@ enabled = true
 event_time_column = "event_time"
 bucket_minutes = 30
 ```
+
+For grouped rows, the HTML color is based on the first event time in the event-time range.
 
 To change color buckets from 30 minutes to 15 minutes:
 
@@ -201,6 +263,7 @@ device_battery = ["Device Battery", "Battery", "Battery %"]
 [[output_columns]]
 source = "ssid"
 header = "SSID"
+aggregate = "distinct_list"
 ```
 
 3. Add this output block:
@@ -209,6 +272,7 @@ header = "SSID"
 [[output_columns]]
 source = "device_battery"
 header = "Device Battery"
+aggregate = "distinct_list"
 ```
 
 4. Remove `ssid` from the sort list if it is no longer needed:

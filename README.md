@@ -24,11 +24,11 @@ Use that file to change:
 
 - Raw CSV column aliases, such as renaming `Accuracy` to `Accuracy Meters`.
 - Output columns and output header names.
-- Sort order.
-- The device key used for total sighting counts.
+- Sorting rules. Sorting is currently disabled by default, with an available rule for `MGRS Unique Count` greatest to least.
+- The grouping key used to condense raw rows.
 - HTML color-bucket settings.
 
-The current `MGRS Unique Count` output column is configured as total sightings per `BSSID`.
+The current output is condensed to one row per `BSSID`. `MGRS Unique Count` counts distinct non-empty MGRS values for that BSSID.
 
 ## Project Layout
 

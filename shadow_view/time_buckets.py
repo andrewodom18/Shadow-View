@@ -13,16 +13,22 @@ def parse_event_time(value: str) -> datetime | None:
     if cleaned.endswith("Z"):
         cleaned = cleaned[:-1] + "+00:00"
 
-    try:
-        return datetime.fromisoformat(cleaned)
-    except ValueError:
-        pass
+    candidates = [cleaned]
+    if len(cleaned) >= 19:
+        candidates.append(cleaned[:19])
+
+    for candidate in candidates:
+        try:
+            return datetime.fromisoformat(candidate)
+        except ValueError:
+            pass
 
     for pattern in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%m/%d/%Y %H:%M:%S"):
-        try:
-            return datetime.strptime(cleaned, pattern)
-        except ValueError:
-            continue
+        for candidate in candidates:
+            try:
+                return datetime.strptime(candidate, pattern)
+            except ValueError:
+                continue
 
     return None
 

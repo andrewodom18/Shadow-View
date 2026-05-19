@@ -9,11 +9,16 @@ from typing import Any
 
 from .config import (
     configured_aliases,
+    grouping_enabled,
+    grouping_key,
+    multi_value_separator,
     output_column_by_header,
     sighting_device_key,
     sort_columns,
+    sort_rules,
 )
 from .errors import CleanerError
+from .time_buckets import parse_event_time
 
 
 def quote_identifier(value: str) -> str:
@@ -24,6 +29,102 @@ def quote_identifier(value: str) -> str:
 
 def quote_alias(value: str) -> str:
     return '"' + value.replace('"', '""') + '"'
+
+
+def quote_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def format_whole_number(value: float) -> str:
+    return str(round(value))
+
+
+def apply_sort_value_type(expression: str, value_type: str) -> str:
+    if value_type == "number":
+        return f"CAST(NULLIF({expression}, '') AS REAL)"
+    return expression
+
+
+class DistinctList:
+    def __init__(self) -> None:
+        self.values: dict[str, str] = {}
+        self.separator = " | "
+
+    def step(self, value: object, separator: object = None) -> None:
+        if separator is not None:
+            self.separator = str(separator)
+        if value is None:
+            return
+
+        cleaned = str(value).strip()
+        if not cleaned:
+            return
+
+        self.values.setdefault(cleaned.casefold(), cleaned)
+
+    def finalize(self) -> str:
+        values = sorted(self.values.values(), key=lambda item: item.casefold())
+        if not values:
+            return ""
+        if len(values) == 1:
+            return values[0]
+        return self.separator.join(values)
+
+
+class AverageValue:
+    def __init__(self) -> None:
+        self.total = 0.0
+        self.count = 0
+
+    def step(self, value: object) -> None:
+        if value is None:
+            return
+        cleaned = str(value).strip()
+        if not cleaned:
+            return
+        try:
+            self.total += float(cleaned)
+        except ValueError:
+            return
+        self.count += 1
+
+    def finalize(self) -> str:
+        if self.count == 0:
+            return ""
+        return format_whole_number(self.total / self.count)
+
+
+class DateTimeRange:
+    def __init__(self) -> None:
+        self.start = None
+        self.end = None
+
+    def step(self, value: object) -> None:
+        if value is None:
+            return
+        parsed = parse_event_time(str(value))
+        if parsed is None:
+            return
+        if self.start is None or parsed < self.start:
+            self.start = parsed
+        if self.end is None or parsed > self.end:
+            self.end = parsed
+
+    def finalize(self) -> str:
+        if self.start is None or self.end is None:
+            return ""
+
+        start = self.start.strftime("%Y-%m-%d %H:%M:%S")
+        end = self.end.strftime("%Y-%m-%d %H:%M:%S")
+        if start == end:
+            return start
+        return f"{start} to {end}"
+
+
+def register_aggregates(connection: sqlite3.Connection) -> None:
+    connection.create_aggregate("distinct_list", 2, DistinctList)
+    connection.create_aggregate("average_value", 1, AverageValue)
+    connection.create_aggregate("datetime_range", 1, DateTimeRange)
 
 
 def create_observations_table(
@@ -77,7 +178,9 @@ def ingest_csv(
 def create_indexes(
     connection: sqlite3.Connection, store_columns: list[str], config: dict[str, Any]
 ) -> None:
-    index_columns = [sighting_device_key(config)]
+    index_columns = [
+        grouping_key(config) if grouping_enabled(config) else sighting_device_key(config)
+    ]
     index_columns.extend(
         column for column in sort_columns(config) if column in store_columns
     )
@@ -103,6 +206,14 @@ def select_expression(column: dict[str, str]) -> str:
 
 
 def build_query(
+    config: dict[str, Any], columns: list[dict[str, str]], store_columns: list[str]
+) -> str:
+    if grouping_enabled(config):
+        return build_grouped_query(config, columns, store_columns)
+    return build_row_query(config, columns, store_columns)
+
+
+def build_row_query(
     config: dict[str, Any], columns: list[dict[str, str]], store_columns: list[str]
 ) -> str:
     device_key = sighting_device_key(config)
@@ -144,6 +255,112 @@ def build_query(
     return f"{with_sql}SELECT {select_sql} FROM observations o {join_sql} {order_sql}"
 
 
+def grouped_source_expression(
+    column: dict[str, str], group_key: str, separator: str
+) -> str:
+    source = column["source"]
+    header = quote_alias(column["header"])
+    aggregate = column.get("aggregate")
+
+    if aggregate is None:
+        if source == group_key:
+            aggregate = "group_key"
+        elif source == "accuracy":
+            aggregate = "average"
+        elif source == "event_time":
+            aggregate = "datetime_range"
+        else:
+            aggregate = "distinct_list"
+
+    source_sql = f"o.{quote_identifier(source)}"
+    if aggregate == "group_key":
+        return f"{source_sql} AS {header}"
+    if aggregate == "distinct_list":
+        return f"distinct_list({source_sql}, {quote_literal(separator)}) AS {header}"
+    if aggregate == "average":
+        return f"average_value({source_sql}) AS {header}"
+    if aggregate == "datetime_range":
+        return f"datetime_range({source_sql}) AS {header}"
+
+    raise CleanerError(f"Unsupported aggregate for {source}: {aggregate}")
+
+
+def grouped_computed_expression(column: dict[str, str]) -> str:
+    computed = column["computed"]
+    header = quote_alias(column["header"])
+
+    if computed == "unique_mgrs_count":
+        return (
+            "COUNT(DISTINCT NULLIF(TRIM("
+            f"o.{quote_identifier('mgrs')}), '')) AS {header}"
+        )
+    if computed == "total_sightings":
+        return f"COUNT(*) AS {header}"
+
+    raise CleanerError(f"Unsupported computed column: {computed}")
+
+
+def grouped_select_expression(
+    column: dict[str, str], group_key: str, separator: str
+) -> str:
+    if "source" in column:
+        return grouped_source_expression(column, group_key, separator)
+    return grouped_computed_expression(column)
+
+
+def build_grouped_query(
+    config: dict[str, Any], columns: list[dict[str, str]], store_columns: list[str]
+) -> str:
+    group_key = grouping_key(config)
+    if group_key not in store_columns:
+        raise CleanerError(f"Grouping key is not available: {group_key}")
+
+    separator = multi_value_separator(config)
+    select_sql = ", ".join(
+        grouped_select_expression(column, group_key, separator) for column in columns
+    )
+    final_select_sql = ", ".join(quote_alias(column["header"]) for column in columns)
+    group_sql = f"GROUP BY o.{quote_identifier(group_key)}"
+    order_sql = build_grouped_order_by(config, columns)
+    return (
+        "WITH grouped AS ("
+        f"SELECT {select_sql}, MIN(o._row_id) AS __first_row_id "
+        f"FROM observations o {group_sql}) "
+        f"SELECT {final_select_sql} FROM grouped {order_sql}"
+    )
+
+
+def build_grouped_order_by(config: dict[str, Any], columns: list[dict[str, str]]) -> str:
+    header_lookup = output_column_by_header(columns)
+    case_sensitive = bool(config.get("sort", {}).get("case_sensitive", False))
+    order_parts: list[str] = []
+
+    for rule in sort_rules(config):
+        sort_column = rule["column"]
+        header = None
+        if sort_column in header_lookup:
+            header = sort_column
+        else:
+            for column in columns:
+                if column.get("source") == sort_column:
+                    header = column["header"]
+                    break
+
+        if header is None:
+            raise CleanerError(
+                f"Grouped sort column {sort_column!r} must be an output column."
+            )
+
+        expression = quote_alias(header)
+        expression = apply_sort_value_type(expression, rule["value_type"])
+        if rule["value_type"] == "text" and not case_sensitive:
+            expression = f"LOWER(COALESCE({expression}, ''))"
+        order_parts.append(f"{expression} {rule['direction'].upper()}")
+
+    order_parts.append("__first_row_id ASC")
+    return "ORDER BY " + ", ".join(order_parts)
+
+
 def build_order_by(
     config: dict[str, Any], columns: list[dict[str, str]], store_columns: list[str]
 ) -> str:
@@ -152,7 +369,8 @@ def build_order_by(
     case_sensitive = bool(config.get("sort", {}).get("case_sensitive", False))
     order_parts: list[str] = []
 
-    for sort_column in sort_columns(config):
+    for rule in sort_rules(config):
+        sort_column = rule["column"]
         source_column: str | None = None
         if sort_column in aliases:
             source_column = sort_column
@@ -163,11 +381,15 @@ def build_order_by(
             if source_column not in store_columns:
                 raise CleanerError(f"Sort source is not available: {source_column}")
             expression = f"o.{quote_identifier(source_column)}"
-            if not case_sensitive:
+            expression = apply_sort_value_type(expression, rule["value_type"])
+            if rule["value_type"] == "text" and not case_sensitive:
                 expression = f"LOWER(COALESCE({expression}, ''))"
-            order_parts.append(f"{expression} ASC")
+            order_parts.append(f"{expression} {rule['direction'].upper()}")
         elif sort_column in header_lookup:
-            order_parts.append(f"{quote_alias(sort_column)} ASC")
+            expression = apply_sort_value_type(
+                quote_alias(sort_column), rule["value_type"]
+            )
+            order_parts.append(f"{expression} {rule['direction'].upper()}")
         else:
             raise CleanerError(f"Unsupported sort column: {sort_column}")
 

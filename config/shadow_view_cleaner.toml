@@ -10,42 +10,55 @@ ssid = ["SSID"]
 accuracy = ["Accuracy"]
 event_time = ["Event Time"]
 device_name = ["Device Name"]
-mgrs = ["MGRS"]
+mgrs = ["MGRS", "Location (MGRS)"]
 
 [sighting_count]
-# Device rows are grouped by this canonical column when calculating sightings.
-# Current rule: total sightings per BSSID, not unique MGRS locations.
+# Used when grouped output is disabled. Grouped output uses [grouping].key.
 device_key = "bssid"
+
+[grouping]
+# Condense raw rows so there is one cleaned output row per BSSID.
+enabled = true
+key = "bssid"
+multi_value_separator = " | "
 
 [[output_columns]]
 source = "bssid"
 header = "BSSID"
+aggregate = "group_key"
 
 [[output_columns]]
 source = "ssid"
 header = "SSID"
+aggregate = "distinct_list"
 
 [[output_columns]]
 source = "accuracy"
 header = "Accuracy"
+aggregate = "average"
 
 [[output_columns]]
 source = "event_time"
 header = "Event Time"
+aggregate = "datetime_range"
 
 [[output_columns]]
 source = "device_name"
 header = "Device Name"
+aggregate = "distinct_list"
 
 [[output_columns]]
-computed = "total_sightings"
+computed = "unique_mgrs_count"
 header = "MGRS Unique Count"
 
 [sort]
-# Change this list to alter A-Z ordering. Values can be canonical input column
-# names such as device_name, ssid, bssid, event_time, or output headers.
-columns = ["device_name", "ssid", "bssid", "event_time"]
+# Sorting is off by default so rows stay in first-seen BSSID order.
+# To sort by MGRS Unique Count greatest to least, set enabled = true.
+enabled = false
 case_sensitive = false
+rules = [
+  { column = "MGRS Unique Count", direction = "desc", value_type = "number" }
+]
 
 [color_coding]
 enabled = true
