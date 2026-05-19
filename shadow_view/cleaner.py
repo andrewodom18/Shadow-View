@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import sqlite3
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -38,7 +39,29 @@ from .xlsx_output import XlsxOutput
 @dataclass(frozen=True)
 class CleanResult:
     rows_processed: int
+    rows_written: int
     headers: list[str]
+    output_csv: Path
+    config_path: Path
+    cleaner_id: str | None = None
+    tool_name: str | None = None
+    html_output: Path | None = None
+    xlsx_output: Path | None = None
+    elapsed_seconds: float | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "cleaner_id": self.cleaner_id,
+            "tool_name": self.tool_name,
+            "rows_processed": self.rows_processed,
+            "rows_written": self.rows_written,
+            "headers": self.headers,
+            "output_csv": str(self.output_csv),
+            "html_output": str(self.html_output) if self.html_output else None,
+            "xlsx_output": str(self.xlsx_output) if self.xlsx_output else None,
+            "config_path": str(self.config_path),
+            "elapsed_seconds": self.elapsed_seconds,
+        }
 
 
 def normalize_name(value: str) -> str:
@@ -128,7 +151,7 @@ def write_outputs(
     headers: list[str],
     columns: list[dict[str, str]],
     config: dict[str, Any],
-) -> None:
+) -> int:
     output_csv.parent.mkdir(parents=True, exist_ok=True)
     if html_output is not None:
         html_output.parent.mkdir(parents=True, exist_ok=True)
@@ -146,6 +169,7 @@ def write_outputs(
     event_index = headers.index(event_header) if event_header in headers else None
 
     cursor = connection.execute(query)
+    rows_written = 0
 
     with output_csv.open("w", newline="", encoding="utf-8") as csv_file:
         writer = csv.writer(csv_file, lineterminator="\n")
@@ -172,6 +196,7 @@ def write_outputs(
             for row in cursor:
                 values = ["" if value is None else str(value) for value in row]
                 writer.writerow(values)
+                rows_written += 1
 
                 if html_file is not None:
                     write_html_row(
@@ -191,6 +216,8 @@ def write_outputs(
             if xlsx_file is not None:
                 xlsx_file.close()
 
+    return rows_written
+
 
 def clean_csv(
     input_csv: Path,
@@ -198,8 +225,11 @@ def clean_csv(
     config_path: Path,
     html_output: Path | None = None,
     xlsx_output: Path | None = None,
+    cleaner_id: str | None = None,
 ) -> CleanResult:
+    start_time = time.perf_counter()
     config = load_config(config_path)
+    output_tool_name = tool_name(config, "Shadow View CSV Cleaner")
     columns = output_columns(config)
     aliases = configured_aliases(config)
     styled_output_requested = html_output is not None or xlsx_output is not None
@@ -219,7 +249,7 @@ def clean_csv(
             row_count = ingest_csv(input_csv, connection, store_columns, input_indexes)
             create_indexes(connection, store_columns, config)
             query = build_query(config, columns, store_columns)
-            write_outputs(
+            rows_written = write_outputs(
                 connection,
                 query,
                 output_csv,
@@ -232,4 +262,15 @@ def clean_csv(
         finally:
             connection.close()
 
-    return CleanResult(rows_processed=row_count, headers=headers)
+    return CleanResult(
+        rows_processed=row_count,
+        rows_written=rows_written,
+        headers=headers,
+        output_csv=output_csv,
+        config_path=config_path,
+        cleaner_id=cleaner_id,
+        tool_name=output_tool_name,
+        html_output=html_output,
+        xlsx_output=xlsx_output,
+        elapsed_seconds=time.perf_counter() - start_time,
+    )

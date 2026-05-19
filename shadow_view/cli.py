@@ -55,6 +55,7 @@ def main(
     default_config: Path = DEFAULT_CONFIG,
     tool_name: str = DEFAULT_TOOL_NAME,
     input_description: str = DEFAULT_INPUT_DESCRIPTION,
+    cleaner_id: str | None = None,
 ) -> int:
     args = parse_args(
         argv or sys.argv[1:],
@@ -70,6 +71,7 @@ def main(
             args.config,
             args.html_output,
             args.xlsx_output,
+            cleaner_id,
         )
     except (CleanerError, OSError, sqlite3.Error, csv.Error, ValueError) as exc:
         print(f"Error: {exc}", file=sys.stderr)

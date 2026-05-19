@@ -4,11 +4,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 from .errors import CleanerError
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+def application_base_path() -> Path:
+    bundled_path = getattr(sys, "_MEIPASS", None)
+    if bundled_path:
+        return Path(bundled_path)
+    return Path(__file__).resolve().parents[1]
+
+
+PROJECT_ROOT = application_base_path()
 CONFIG_DIR = PROJECT_ROOT / "config"
 
 

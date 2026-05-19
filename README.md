@@ -48,6 +48,62 @@ Run the standard-library test suite:
 python3 -m unittest discover -s tests
 ```
 
+## Backend Integration
+
+The website backend should call the package directly instead of shelling out to the scripts:
+
+```python
+from pathlib import Path
+
+from shadow_view import CleanerError, clean_shadow_view_csv
+
+try:
+    result = clean_shadow_view_csv(
+        "rogue_tower",
+        input_csv=Path("/tmp/uploads/raw.csv"),
+        output_csv=Path("/tmp/downloads/cleaned.csv"),
+        xlsx_output=Path("/tmp/downloads/cleaned.xlsx"),
+    )
+except CleanerError as exc:
+    # Return this as a validation error to the user.
+    message = str(exc)
+else:
+    payload = result.to_dict()
+```
+
+Stable cleaner IDs:
+
+- `co_traveler`
+- `rogue_tower`
+
+The result object includes `rows_processed`, `rows_written`, `elapsed_seconds`, output paths, headers, cleaner ID, and tool name. `available_cleaners()` returns the registered cleaner metadata for a backend dropdown or validation layer.
+
+## Windows Desktop App
+
+The standalone desktop app entrypoint is:
+
+```bash
+python3 scripts/shadow_view_cleaner_app.py
+```
+
+The app is designed for offline use. A Windows user can choose a CSV, the app auto-detects whether it is Co-Traveler or Rogue Tower data, then the user chooses which outputs to create and where to save each file.
+
+Build a Windows `.exe` on a Windows machine:
+
+```bat
+scripts\build_windows_app.bat
+```
+
+That creates:
+
+```text
+dist\Shadow View CSV Cleaner.exe
+```
+
+Copy that `.exe` to the USB drive. Target computers do not need Python installed.
+
+The cleaner logic remains in the importable `shadow_view` package, so the same code is still ready for the future Shadow View website backend.
+
 ## Configuration
 
 Editable cleanup rules live in:

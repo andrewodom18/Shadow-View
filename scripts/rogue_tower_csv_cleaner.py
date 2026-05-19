@@ -12,16 +12,16 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from shadow_view.cli import main  # noqa: E402
-
-
-DEFAULT_CONFIG = PROJECT_ROOT / "config" / "rogue_tower_csv_cleaner.toml"
+from shadow_view.profiles import get_profile  # noqa: E402
 
 
 if __name__ == "__main__":
+    profile = get_profile("rogue_tower")
     raise SystemExit(
         main(
-            default_config=DEFAULT_CONFIG,
-            tool_name="Rogue Tower CSV Cleaner",
-            input_description="Shadow View Rogue Tower CSV export",
+            default_config=profile.config_path,
+            tool_name=profile.display_name,
+            input_description=profile.input_description,
+            cleaner_id=profile.cleaner_id,
         )
     )

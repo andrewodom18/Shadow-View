@@ -12,7 +12,16 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from shadow_view.cli import main  # noqa: E402
+from shadow_view.profiles import get_profile  # noqa: E402
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    profile = get_profile("co_traveler")
+    raise SystemExit(
+        main(
+            default_config=profile.config_path,
+            tool_name=profile.display_name,
+            input_description=profile.input_description,
+            cleaner_id=profile.cleaner_id,
+        )
+    )
