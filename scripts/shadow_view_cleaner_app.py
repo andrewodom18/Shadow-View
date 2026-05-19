@@ -18,24 +18,126 @@ if str(PROJECT_ROOT) not in sys.path:
 from shadow_view import CleanerError, clean_shadow_view_csv, detect_cleaner_profile  # noqa: E402
 
 
-APP_BG = "#f4f7fb"
-CARD_BG = "#ffffff"
-TEXT_COLOR = "#1f2937"
-MUTED_COLOR = "#5f6b7a"
-ACCENT_COLOR = "#2563eb"
-ACCENT_ACTIVE = "#1d4ed8"
-DISABLED_ACCENT = "#93c5fd"
-BORDER_COLOR = "#d5dce7"
+def system_color(root: tk.Tk, name: str, fallback: str) -> str:
+    try:
+        root.winfo_rgb(name)
+    except tk.TclError:
+        return fallback
+    return name
+
+
+def draw_rounded_rectangle(
+    canvas: tk.Canvas,
+    x1: int,
+    y1: int,
+    x2: int,
+    y2: int,
+    radius: int,
+    *,
+    fill: str,
+    outline: str,
+) -> None:
+    radius = min(radius, max(0, (x2 - x1) // 2), max(0, (y2 - y1) // 2))
+    points = [
+        x1 + radius,
+        y1,
+        x2 - radius,
+        y1,
+        x2,
+        y1,
+        x2,
+        y1 + radius,
+        x2,
+        y2 - radius,
+        x2,
+        y2,
+        x2 - radius,
+        y2,
+        x1 + radius,
+        y2,
+        x1,
+        y2,
+        x1,
+        y2 - radius,
+        x1,
+        y1 + radius,
+        x1,
+        y1,
+    ]
+    canvas.create_polygon(
+        points,
+        smooth=True,
+        splinesteps=18,
+        fill=fill,
+        outline=outline,
+        tags="panel",
+    )
+
+
+class RoundedPanel(tk.Canvas):
+    def __init__(
+        self,
+        master: tk.Widget,
+        *,
+        background: str,
+        fill: str,
+        outline: str,
+        radius: int = 16,
+        padding: int = 16,
+        min_height: int = 86,
+    ) -> None:
+        super().__init__(
+            master,
+            background=background,
+            highlightthickness=0,
+            borderwidth=0,
+            height=min_height,
+        )
+        self.fill = fill
+        self.outline = outline
+        self.radius = radius
+        self.padding = padding
+        self.content = tk.Frame(self, background=fill, borderwidth=0)
+        self.content_window = self.create_window(
+            padding,
+            padding,
+            anchor="nw",
+            window=self.content,
+        )
+        self.bind("<Configure>", self._redraw)
+
+    def _redraw(self, event: tk.Event) -> None:
+        self.delete("panel")
+        width = max(1, int(event.width))
+        height = max(1, int(event.height))
+        draw_rounded_rectangle(
+            self,
+            1,
+            1,
+            width - 2,
+            height - 2,
+            self.radius,
+            fill=self.fill,
+            outline=self.outline,
+        )
+        self.tag_lower("panel")
+        inner_width = max(1, width - self.padding * 2)
+        inner_height = max(1, height - self.padding * 2)
+        self.itemconfigure(
+            self.content_window,
+            width=inner_width,
+            height=inner_height,
+        )
 
 
 class ShadowViewCleanerApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("Shadow View CSV Cleaner")
-        self.root.geometry("760x460")
-        self.root.minsize(680, 420)
-        self.root.configure(background=APP_BG)
+        self.root.geometry("760x480")
+        self.root.minsize(680, 440)
         self._configure_style()
+        self.root.configure(background=self.window_bg)
 
         self.input_csv: Path | None = None
         self.cleaner_id: str | None = None
@@ -51,74 +153,48 @@ class ShadowViewCleanerApp:
 
     def _configure_style(self) -> None:
         style = ttk.Style(self.root)
-        if "clam" in style.theme_names():
-            style.theme_use("clam")
-
         default_font = ("Segoe UI", 10)
         style.configure(".", font=default_font)
-        style.configure("App.TFrame", background=APP_BG)
+
+        frame_bg = style.lookup("TFrame", "background") or self.root.cget("background")
+        label_fg = style.lookup("TLabel", "foreground") or "#000000"
+        self.window_bg = system_color(self.root, "SystemButtonFace", frame_bg)
+        self.panel_bg = system_color(self.root, "SystemWindow", frame_bg)
+        self.text_color = system_color(self.root, "SystemWindowText", label_fg)
+        self.muted_color = system_color(self.root, "SystemGrayText", label_fg)
+        self.border_color = system_color(self.root, "SystemButtonShadow", "#c8c8c8")
+
+        style.configure("App.TFrame", background=self.window_bg)
         style.configure(
             "Title.TLabel",
-            background=APP_BG,
-            foreground=TEXT_COLOR,
+            background=self.window_bg,
+            foreground=self.text_color,
             font=("Segoe UI", 20, "bold"),
         )
         style.configure(
             "Muted.TLabel",
-            background=APP_BG,
-            foreground=MUTED_COLOR,
+            background=self.window_bg,
+            foreground=self.muted_color,
         )
         style.configure(
-            "Card.TLabelframe",
-            background=CARD_BG,
-            bordercolor=BORDER_COLOR,
-            relief="solid",
-        )
-        style.configure(
-            "Card.TLabelframe.Label",
-            background=APP_BG,
-            foreground=TEXT_COLOR,
+            "Section.TLabel",
+            background=self.window_bg,
+            foreground=self.text_color,
             font=("Segoe UI", 10, "bold"),
         )
-        style.configure("Card.TCheckbutton", background=CARD_BG, foreground=TEXT_COLOR)
-        style.map("Card.TCheckbutton", background=[("active", CARD_BG)])
+        style.configure(
+            "Panel.TCheckbutton",
+            background=self.panel_bg,
+            foreground=self.text_color,
+        )
+        style.map("Panel.TCheckbutton", background=[("active", self.panel_bg)])
         style.configure(
             "Status.TLabel",
-            background=CARD_BG,
-            foreground=TEXT_COLOR,
-            padding=6,
+            background=self.panel_bg,
+            foreground=self.text_color,
+            padding=0,
         )
         style.configure("TButton", padding=(12, 7))
-        style.configure(
-            "Primary.TButton",
-            padding=(16, 8),
-            foreground="#ffffff",
-            background=ACCENT_COLOR,
-            font=("Segoe UI", 10, "bold"),
-            bordercolor=ACCENT_COLOR,
-        )
-        style.map(
-            "Primary.TButton",
-            background=[
-                ("disabled", DISABLED_ACCENT),
-                ("active", ACCENT_ACTIVE),
-                ("pressed", ACCENT_ACTIVE),
-            ],
-            bordercolor=[
-                ("disabled", DISABLED_ACCENT),
-                ("active", ACCENT_ACTIVE),
-                ("pressed", ACCENT_ACTIVE),
-            ],
-            foreground=[("disabled", "#eef4ff")],
-        )
-        style.configure(
-            "Horizontal.TProgressbar",
-            background=ACCENT_COLOR,
-            troughcolor="#e7edf5",
-            bordercolor="#e7edf5",
-            lightcolor=ACCENT_COLOR,
-            darkcolor=ACCENT_COLOR,
-        )
 
     def _build_ui(self) -> None:
         outer = ttk.Frame(self.root, padding=(24, 22), style="App.TFrame")
@@ -153,50 +229,66 @@ class ShadowViewCleanerApp:
         )
         detected_label.grid(row=2, column=0, sticky="w", pady=(0, 16))
 
-        options = ttk.LabelFrame(
-            outer, text="Outputs", padding=14, style="Card.TLabelframe"
+        outputs_title = ttk.Label(outer, text="Outputs", style="Section.TLabel")
+        outputs_title.grid(row=3, column=0, sticky="w", pady=(0, 6))
+
+        outputs_panel = RoundedPanel(
+            outer,
+            background=self.window_bg,
+            fill=self.panel_bg,
+            outline=self.border_color,
+            min_height=74,
         )
-        options.grid(row=3, column=0, sticky="ew")
+        outputs_panel.grid(row=4, column=0, sticky="ew")
+        options = outputs_panel.content
         options.columnconfigure(0, weight=1)
         options.columnconfigure(1, weight=1)
         options.columnconfigure(2, weight=1)
 
         ttk.Checkbutton(
-            options, text="CSV", variable=self.csv_enabled, style="Card.TCheckbutton"
+            options, text="CSV", variable=self.csv_enabled, style="Panel.TCheckbutton"
         ).grid(row=0, column=0, sticky="w")
         ttk.Checkbutton(
             options,
             text="Excel (.xlsx)",
             variable=self.xlsx_enabled,
-            style="Card.TCheckbutton",
+            style="Panel.TCheckbutton",
         ).grid(row=0, column=1, sticky="w")
         ttk.Checkbutton(
             options,
             text="HTML preview",
             variable=self.html_enabled,
-            style="Card.TCheckbutton",
+            style="Panel.TCheckbutton",
         ).grid(row=0, column=2, sticky="w")
 
         actions = ttk.Frame(outer, style="App.TFrame")
-        actions.grid(row=4, column=0, sticky="ew", pady=(20, 12))
+        actions.grid(row=5, column=0, sticky="ew", pady=(20, 12))
         actions.columnconfigure(0, weight=1)
 
         self.clean_button = ttk.Button(
             actions,
             text="Clean CSV",
             command=self.start_cleaning,
-            style="Primary.TButton",
         )
         self.clean_button.grid(row=0, column=0, sticky="w")
 
         self.progress = ttk.Progressbar(actions, mode="indeterminate", length=220)
         self.progress.grid(row=0, column=1, sticky="e")
+        self.progress.grid_remove()
 
-        status_box = ttk.LabelFrame(
-            outer, text="Status", padding=14, style="Card.TLabelframe"
+        status_title = ttk.Label(outer, text="Status", style="Section.TLabel")
+        status_title.grid(row=6, column=0, sticky="w", pady=(0, 6))
+
+        status_panel = RoundedPanel(
+            outer,
+            background=self.window_bg,
+            fill=self.panel_bg,
+            outline=self.border_color,
+            min_height=130,
         )
-        status_box.grid(row=5, column=0, sticky="nsew", pady=(8, 0))
-        outer.rowconfigure(5, weight=1)
+        status_panel.grid(row=7, column=0, sticky="nsew")
+        outer.rowconfigure(7, weight=1)
+        status_box = status_panel.content
         status_box.columnconfigure(0, weight=1)
         status_box.rowconfigure(0, weight=1)
 
@@ -350,10 +442,13 @@ class ShadowViewCleanerApp:
     def _set_busy(self, busy: bool) -> None:
         if busy:
             self.clean_button.state(["disabled"])
+            self.progress.grid()
             self.progress.start(12)
+            self.root.update_idletasks()
         else:
             self.clean_button.state(["!disabled"])
             self.progress.stop()
+            self.progress.grid_remove()
 
 
 def main() -> int:
