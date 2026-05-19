@@ -6,14 +6,15 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 from shadow_view.cleaner import clean_csv
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_CONFIG = PROJECT_ROOT / "config" / "shadow_view_cleaner.toml"
-CLI_SCRIPT = PROJECT_ROOT / "scripts" / "clean_shadow_view_csv.py"
+DEFAULT_CONFIG = PROJECT_ROOT / "config" / "co_traveler_csv_cleaner.toml"
+CLI_SCRIPT = PROJECT_ROOT / "scripts" / "co_traveler_csv_cleaner.py"
 
 REAL_EXPORT_HEADER = [
     "Document ID",
@@ -248,6 +249,7 @@ class ShadowViewCleanerTests(unittest.TestCase):
             input_csv = temp_path / "real_format.csv"
             output_csv = temp_path / "cleaned.csv"
             html_output = temp_path / "cleaned.html"
+            xlsx_output = temp_path / "cleaned.xlsx"
 
             write_real_format_csv(
                 input_csv,
@@ -272,6 +274,8 @@ class ShadowViewCleanerTests(unittest.TestCase):
                     str(output_csv),
                     "--html-output",
                     str(html_output),
+                    "--xlsx-output",
+                    str(xlsx_output),
                 ],
                 cwd=PROJECT_ROOT,
                 check=False,
@@ -283,7 +287,32 @@ class ShadowViewCleanerTests(unittest.TestCase):
             self.assertRegex(completed.stdout, r"Processed 1 rows in \d+\.\d{2}s\.")
             self.assertTrue(output_csv.exists())
             self.assertTrue(html_output.exists())
+            self.assertTrue(xlsx_output.exists())
             self.assertIn("30-minute bucket", html_output.read_text(encoding="utf-8"))
+            self.assertIn(f"Wrote Excel workbook: {xlsx_output}", completed.stdout)
+
+            with zipfile.ZipFile(xlsx_output) as workbook:
+                self.assertIn("xl/worksheets/sheet1.xml", workbook.namelist())
+                self.assertIn("xl/styles.xml", workbook.namelist())
+                styles_xml = workbook.read("xl/styles.xml").decode("utf-8")
+                sheet_xml = workbook.read("xl/worksheets/sheet1.xml").decode("utf-8")
+
+            self.assertIn("<autoFilter", sheet_xml)
+            self.assertTrue(
+                any(
+                    color in styles_xml
+                    for color in (
+                        "FFFFF2CC",
+                        "FFD9EAD3",
+                        "FFCFE2F3",
+                        "FFEADCF8",
+                        "FFF4CCCC",
+                        "FFD0E0E3",
+                        "FFFCE5CD",
+                        "FFD9D2E9",
+                    )
+                )
+            )
 
 
 if __name__ == "__main__":

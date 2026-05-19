@@ -30,6 +30,7 @@ from .sqlite_store import (
     ingest_csv,
     register_aggregates,
 )
+from .xlsx_output import XlsxOutput
 
 
 @dataclass(frozen=True)
@@ -121,6 +122,7 @@ def write_outputs(
     query: str,
     output_csv: Path,
     html_output: Path | None,
+    xlsx_output: Path | None,
     headers: list[str],
     columns: list[dict[str, str]],
     config: dict[str, Any],
@@ -128,11 +130,12 @@ def write_outputs(
     output_csv.parent.mkdir(parents=True, exist_ok=True)
     if html_output is not None:
         html_output.parent.mkdir(parents=True, exist_ok=True)
+    if xlsx_output is not None:
+        xlsx_output.parent.mkdir(parents=True, exist_ok=True)
 
     color_settings = color_config(config)
-    color_enabled = (
-        bool(color_settings.get("enabled", False)) and html_output is not None
-    )
+    styled_output_requested = html_output is not None or xlsx_output is not None
+    color_enabled = bool(color_settings.get("enabled", False)) and styled_output_requested
     bucket_minutes = int(color_settings.get("bucket_minutes", 30))
     palette = [str(color) for color in color_settings.get("palette", [])]
     event_header = event_output_header(color_settings, columns, headers)
@@ -145,10 +148,20 @@ def write_outputs(
         writer.writerow(headers)
 
         html_file = None
+        xlsx_file = None
         try:
             if html_output is not None:
                 html_file = html_output.open("w", encoding="utf-8")
                 write_html_start(html_file, headers)
+            if xlsx_output is not None:
+                xlsx_file = XlsxOutput(
+                    xlsx_output,
+                    headers,
+                    event_index,
+                    bucket_minutes,
+                    palette,
+                    color_enabled,
+                )
 
             for row in cursor:
                 values = ["" if value is None else str(value) for value in row]
@@ -163,26 +176,35 @@ def write_outputs(
                         palette,
                         color_enabled,
                     )
+                if xlsx_file is not None:
+                    xlsx_file.write_row(values)
         finally:
             if html_file is not None:
                 write_html_end(html_file)
                 html_file.close()
+            if xlsx_file is not None:
+                xlsx_file.close()
 
 
 def clean_csv(
-    input_csv: Path, output_csv: Path, config_path: Path, html_output: Path | None
+    input_csv: Path,
+    output_csv: Path,
+    config_path: Path,
+    html_output: Path | None = None,
+    xlsx_output: Path | None = None,
 ) -> CleanResult:
     config = load_config(config_path)
     columns = output_columns(config)
     aliases = configured_aliases(config)
-    required = required_canonical_columns(config, columns, html_output is not None)
+    styled_output_requested = html_output is not None or xlsx_output is not None
+    required = required_canonical_columns(config, columns, styled_output_requested)
     raw_header = read_header(input_csv)
     input_indexes = resolve_input_indexes(input_csv, raw_header, aliases, required)
 
     store_columns = [canonical for canonical in aliases if canonical in required]
     headers = [column["header"] for column in columns]
 
-    with tempfile.TemporaryDirectory(prefix="shadow_view_cleaner_") as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="co_traveler_csv_cleaner_") as temp_dir:
         db_path = Path(temp_dir) / "shadow_view.sqlite3"
         connection = sqlite3.connect(db_path)
         try:
@@ -196,6 +218,7 @@ def clean_csv(
                 query,
                 output_csv,
                 html_output,
+                xlsx_output,
                 headers,
                 columns,
                 config,

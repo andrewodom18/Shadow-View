@@ -1,6 +1,6 @@
-# Shadow View Cleaner Config Guide
+# Co-Traveler CSV Cleaner Config Guide
 
-The cleaner reads settings from `config/shadow_view_cleaner.toml`.
+The cleaner reads settings from `config/co_traveler_csv_cleaner.toml`.
 
 Use this file when Shadow View changes raw CSV headers, when the cleaned output needs different columns, or when sorting/color rules change. The Python script should not need edits for normal column and sorting changes.
 
@@ -212,7 +212,7 @@ When grouped output is enabled, sort columns should refer to output columns by c
 
 ## Changing Color Coding
 
-Color coding is used only for the optional HTML preview. CSV files cannot store colors.
+Color coding is used for the optional HTML preview and optional Excel workbook. CSV files cannot store colors.
 
 ```toml
 [color_coding]
@@ -221,7 +221,7 @@ event_time_column = "event_time"
 bucket_minutes = 30
 ```
 
-For grouped rows, the HTML color is based on the first event time in the event-time range.
+For grouped rows, the color is based on the first event time in the event-time range.
 
 To change color buckets from 30 minutes to 15 minutes:
 
@@ -229,7 +229,7 @@ To change color buckets from 30 minutes to 15 minutes:
 bucket_minutes = 15
 ```
 
-To disable HTML row color coding:
+To disable row color coding in HTML and Excel outputs:
 
 ```toml
 enabled = false
@@ -245,7 +245,7 @@ palette = [
 ]
 ```
 
-Colors must be valid HTML color values.
+Colors should be hex values such as `#fff2cc` if the workbook should show the same fills in Excel.
 
 ## Example: Replace SSID With Device Battery
 
@@ -281,10 +281,20 @@ columns = ["device_name", "bssid", "event_time"]
 
 ## Running With A Custom Config
 
-The default config is `config/shadow_view_cleaner.toml`.
+The default config is `config/co_traveler_csv_cleaner.toml`.
 
 To use another config file:
 
 ```bash
-./scripts/clean_shadow_view_csv.py raw.csv cleaned.csv --config config/my_custom_config.toml
+./scripts/co_traveler_csv_cleaner.py raw.csv cleaned.csv --config config/my_custom_config.toml
 ```
+
+## Excel Output
+
+Use `--xlsx-output` when the cleaned file needs visible colors in Excel:
+
+```bash
+./scripts/co_traveler_csv_cleaner.py raw.csv cleaned.csv --xlsx-output cleaned.xlsx
+```
+
+The workbook uses the same `[color_coding]` settings as the HTML preview. The regular CSV is still written because it is the simplest file for backend workflows and imports.

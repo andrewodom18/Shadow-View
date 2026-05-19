@@ -1,4 +1,4 @@
-"""Configuration loading and validation for the Shadow View cleaner."""
+"""Configuration loading and validation for the Co-Traveler CSV Cleaner."""
 
 from __future__ import annotations
 

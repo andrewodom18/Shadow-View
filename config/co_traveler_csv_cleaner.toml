@@ -1,4 +1,4 @@
-# Shadow View CSV cleaner configuration.
+# Co-Traveler CSV Cleaner configuration.
 #
 # The script uses canonical names internally, but each canonical name can have
 # multiple aliases so input exports can change their column wording over time.
@@ -64,7 +64,7 @@ enabled = true
 event_time_column = "event_time"
 bucket_minutes = 30
 
-# Used only when an HTML preview is requested. CSV files cannot store colors.
+# Used when an HTML preview or Excel workbook is requested. CSV files cannot store colors.
 palette = [
   "#fff2cc",
   "#d9ead3",

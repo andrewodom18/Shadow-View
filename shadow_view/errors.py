@@ -1,4 +1,4 @@
-"""Shared exceptions for the Shadow View cleaner."""
+"""Shared exceptions for the Co-Traveler CSV Cleaner."""
 
 
 class CleanerError(Exception):

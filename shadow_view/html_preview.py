@@ -26,7 +26,7 @@ def write_html_start(html_file: Any, headers: list[str]) -> None:
         '<html lang="en">\n'
         "<head>\n"
         '<meta charset="utf-8">\n'
-        "<title>Shadow View Cleaned CSV Preview</title>\n"
+        "<title>Co-Traveler Cleaned CSV Preview</title>\n"
         "<style>\n"
         "body{font-family:Arial,sans-serif;margin:24px;color:#1f2933;}\n"
         "table{border-collapse:collapse;width:100%;font-size:13px;}\n"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CLI entrypoint for the Shadow View CSV cleaner."""
+"""CLI entrypoint for the Co-Traveler CSV Cleaner."""
 
 from __future__ import annotations
 
