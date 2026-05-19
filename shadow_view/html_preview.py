@@ -20,13 +20,15 @@ def event_output_header(
     return "Event Time" if "Event Time" in headers else None
 
 
-def write_html_start(html_file: Any, headers: list[str]) -> None:
+def write_html_start(
+    html_file: Any, headers: list[str], title: str = "Shadow View CSV Preview"
+) -> None:
     html_file.write(
         "<!doctype html>\n"
         '<html lang="en">\n'
         "<head>\n"
         '<meta charset="utf-8">\n'
-        "<title>Co-Traveler Cleaned CSV Preview</title>\n"
+        f"<title>{html.escape(title)} Preview</title>\n"
         "<style>\n"
         "body{font-family:Arial,sans-serif;margin:24px;color:#1f2933;}\n"
         "table{border-collapse:collapse;width:100%;font-size:13px;}\n"

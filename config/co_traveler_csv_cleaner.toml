@@ -4,6 +4,8 @@
 # multiple aliases so input exports can change their column wording over time.
 # Add new aliases here when a raw CSV header changes.
 
+tool_name = "Co-Traveler CSV Cleaner"
+
 [input_columns]
 bssid = ["BSSID"]
 ssid = ["SSID"]

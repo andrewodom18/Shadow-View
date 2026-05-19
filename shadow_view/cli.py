@@ -1,4 +1,4 @@
-"""Command-line interface for the Co-Traveler CSV Cleaner."""
+"""Command-line interface for Shadow View CSV cleaners."""
 
 from __future__ import annotations
 
@@ -16,37 +16,52 @@ from .errors import CleanerError
 DEFAULT_CONFIG = (
     Path(__file__).resolve().parents[1] / "config" / "co_traveler_csv_cleaner.toml"
 )
+DEFAULT_TOOL_NAME = "Co-Traveler CSV Cleaner"
+DEFAULT_INPUT_DESCRIPTION = "Shadow View Co-Traveler CSV export"
 
 
-def parse_args(argv: list[str]) -> argparse.Namespace:
+def parse_args(
+    argv: list[str],
+    default_config: Path = DEFAULT_CONFIG,
+    tool_name: str = DEFAULT_TOOL_NAME,
+    input_description: str = DEFAULT_INPUT_DESCRIPTION,
+) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Clean a Shadow View Co-Traveler CSV export with standard-library Python."
+        description=f"Clean a {input_description} with standard-library Python."
     )
-    parser.add_argument(
-        "input_csv", type=Path, help="Raw Shadow View Co-Traveler CSV export."
-    )
+    parser.add_argument("input_csv", type=Path, help=f"Raw {input_description}.")
     parser.add_argument("output_csv", type=Path, help="Cleaned CSV path to write.")
     parser.add_argument(
         "--config",
         type=Path,
-        default=DEFAULT_CONFIG,
-        help=f"Cleaner config path. Default: {DEFAULT_CONFIG}",
+        default=default_config,
+        help=f"{tool_name} config path. Default: {default_config}",
     )
     parser.add_argument(
         "--html-output",
         type=Path,
-        help="Optional styled HTML preview path for 30-minute color buckets.",
+        help="Optional styled HTML preview path.",
     )
     parser.add_argument(
         "--xlsx-output",
         type=Path,
-        help="Optional Excel workbook path with 30-minute color bucket fills.",
+        help="Optional Excel workbook path with configured fill colors.",
     )
     return parser.parse_args(argv)
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv or sys.argv[1:])
+def main(
+    argv: list[str] | None = None,
+    default_config: Path = DEFAULT_CONFIG,
+    tool_name: str = DEFAULT_TOOL_NAME,
+    input_description: str = DEFAULT_INPUT_DESCRIPTION,
+) -> int:
+    args = parse_args(
+        argv or sys.argv[1:],
+        default_config=default_config,
+        tool_name=tool_name,
+        input_description=input_description,
+    )
     start_time = time.perf_counter()
     try:
         result = clean_csv(

@@ -10,11 +10,13 @@ from pathlib import Path
 from typing import Any
 
 from .config import (
+    cell_color_rules_config,
     color_config,
     configured_aliases,
     load_config,
     output_columns,
     required_canonical_columns,
+    tool_name,
 )
 from .errors import CleanerError
 from .html_preview import (
@@ -134,6 +136,8 @@ def write_outputs(
         xlsx_output.parent.mkdir(parents=True, exist_ok=True)
 
     color_settings = color_config(config)
+    cell_color_settings = cell_color_rules_config(config)
+    output_tool_name = tool_name(config, "Shadow View CSV Cleaner")
     styled_output_requested = html_output is not None or xlsx_output is not None
     color_enabled = bool(color_settings.get("enabled", False)) and styled_output_requested
     bucket_minutes = int(color_settings.get("bucket_minutes", 30))
@@ -152,7 +156,7 @@ def write_outputs(
         try:
             if html_output is not None:
                 html_file = html_output.open("w", encoding="utf-8")
-                write_html_start(html_file, headers)
+                write_html_start(html_file, headers, output_tool_name)
             if xlsx_output is not None:
                 xlsx_file = XlsxOutput(
                     xlsx_output,
@@ -161,6 +165,8 @@ def write_outputs(
                     bucket_minutes,
                     palette,
                     color_enabled,
+                    cell_color_settings,
+                    output_tool_name,
                 )
 
             for row in cursor:
@@ -204,7 +210,7 @@ def clean_csv(
     store_columns = [canonical for canonical in aliases if canonical in required]
     headers = [column["header"] for column in columns]
 
-    with tempfile.TemporaryDirectory(prefix="co_traveler_csv_cleaner_") as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="shadow_view_csv_cleaner_") as temp_dir:
         db_path = Path(temp_dir) / "shadow_view.sqlite3"
         connection = sqlite3.connect(db_path)
         try:

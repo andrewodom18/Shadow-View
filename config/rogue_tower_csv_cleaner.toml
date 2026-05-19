@@ -1,0 +1,112 @@
+# Rogue Tower CSV Cleaner configuration.
+#
+# Add aliases here if Shadow View changes a raw CSV header.
+
+tool_name = "Rogue Tower CSV Cleaner"
+
+[input_columns]
+device_name = ["Device Name"]
+device_time = ["Device Time"]
+mcc = ["MCC"]
+mnc = ["MNC"]
+serving_cell = ["Serving Cell"]
+mgrs = ["MGRS", "Location (MGRS)"]
+pci = ["PCI"]
+eci = ["ECI"]
+rsrp = ["RSRP"]
+rsrq = ["RSRQ"]
+tac = ["TAC"]
+type = ["Type"]
+accuracy = ["Accuracy"]
+
+[sighting_count]
+# Required by the shared cleaner, even though Rogue Tower output is not grouped.
+device_key = "device_name"
+
+[grouping]
+enabled = false
+
+[[output_columns]]
+source = "device_name"
+header = "Device Name"
+
+[[output_columns]]
+source = "device_time"
+header = "Device Time"
+
+[[output_columns]]
+source = "mcc"
+header = "MCC"
+
+[[output_columns]]
+source = "mnc"
+header = "MNC"
+
+[[output_columns]]
+source = "serving_cell"
+header = "Serving Cell"
+
+[[output_columns]]
+source = "mgrs"
+header = "MGRS"
+
+[[output_columns]]
+source = "pci"
+header = "PCI"
+
+[[output_columns]]
+source = "eci"
+header = "ECI"
+
+[[output_columns]]
+source = "rsrp"
+header = "RSRP"
+
+[[output_columns]]
+source = "rsrq"
+header = "RSRQ"
+
+[[output_columns]]
+source = "tac"
+header = "TAC"
+
+[[output_columns]]
+source = "type"
+header = "Type"
+
+[[output_columns]]
+source = "accuracy"
+header = "Accuracy"
+
+[sort]
+# Sort latest to earliest by Device Time.
+enabled = true
+case_sensitive = false
+rules = [
+  { column = "device_time", direction = "desc", value_type = "datetime" }
+]
+
+[color_coding]
+# Rogue Tower uses cell-level rules below instead of event-time row buckets.
+enabled = false
+
+[cell_color_rules]
+enabled = true
+
+[[cell_color_rules.rules]]
+column = "RSRP"
+operator = "greater_than"
+value = 70
+color = "#f4cccc"
+
+[[cell_color_rules.rules]]
+column = "Serving Cell"
+operator = "equals"
+value = "true"
+color = "#d9ead3"
+
+[[cell_color_rules.rules]]
+column = "Serving Cell"
+operator = "equals"
+value = "false"
+color = "#f4cccc"

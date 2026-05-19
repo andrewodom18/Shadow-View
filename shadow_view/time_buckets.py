@@ -23,7 +23,14 @@ def parse_event_time(value: str) -> datetime | None:
         except ValueError:
             pass
 
-    for pattern in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%m/%d/%Y %H:%M:%S"):
+    for pattern in (
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%m/%d/%Y %H:%M:%S",
+        "%m/%d/%Y %H:%M",
+        "%m/%d/%Y %I:%M:%S %p",
+        "%m/%d/%Y %I:%M %p",
+    ):
         for candidate in candidates:
             try:
                 return datetime.strptime(candidate, pattern)

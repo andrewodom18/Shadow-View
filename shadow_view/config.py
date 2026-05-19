@@ -1,4 +1,4 @@
-"""Configuration loading and validation for the Co-Traveler CSV Cleaner."""
+"""Configuration loading and validation for Shadow View CSV cleaners."""
 
 from __future__ import annotations
 
@@ -33,6 +33,13 @@ def load_config(path: Path) -> dict[str, Any]:
         raise CleanerError("grouping must be a table.")
 
     return config
+
+
+def tool_name(config: dict[str, Any], default: str) -> str:
+    value = config.get("tool_name", default)
+    if not isinstance(value, str) or not value.strip():
+        raise CleanerError("tool_name must be a non-empty string.")
+    return value
 
 
 def configured_aliases(config: dict[str, Any]) -> dict[str, list[str]]:
@@ -193,6 +200,13 @@ def color_config(config: dict[str, Any]) -> dict[str, Any]:
     value = config.get("color_coding", {})
     if not isinstance(value, dict):
         raise CleanerError("color_coding must be a table.")
+    return value
+
+
+def cell_color_rules_config(config: dict[str, Any]) -> dict[str, Any]:
+    value = config.get("cell_color_rules", {})
+    if not isinstance(value, dict):
+        raise CleanerError("cell_color_rules must be a table.")
     return value
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import math
 import sqlite3
+from datetime import UTC
 from pathlib import Path
 from typing import Any
 
@@ -43,7 +44,20 @@ def format_whole_number(value: float) -> str:
 def apply_sort_value_type(expression: str, value_type: str) -> str:
     if value_type == "number":
         return f"CAST(NULLIF({expression}, '') AS REAL)"
+    if value_type == "datetime":
+        return f"datetime_sort_key({expression})"
     return expression
+
+
+def datetime_sort_key(value: object) -> str:
+    if value is None:
+        return ""
+    parsed = parse_event_time(str(value))
+    if parsed is None:
+        return ""
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(UTC)
+    return parsed.isoformat()
 
 
 class DistinctList:
@@ -123,6 +137,7 @@ class DateTimeRange:
 
 
 def register_aggregates(connection: sqlite3.Connection) -> None:
+    connection.create_function("datetime_sort_key", 1, datetime_sort_key)
     connection.create_aggregate("distinct_list", 2, DistinctList)
     connection.create_aggregate("average_value", 1, AverageValue)
     connection.create_aggregate("datetime_range", 1, DateTimeRange)

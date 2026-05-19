@@ -1,8 +1,11 @@
-# Co-Traveler CSV Cleaner Config Guide
+# Shadow View CSV Cleaner Config Guide
 
-The cleaner reads settings from `config/co_traveler_csv_cleaner.toml`.
+The cleaners read settings from tool-specific config files:
 
-Use this file when Shadow View changes raw CSV headers, when the cleaned output needs different columns, or when sorting/color rules change. The Python script should not need edits for normal column and sorting changes.
+- `config/co_traveler_csv_cleaner.toml`
+- `config/rogue_tower_csv_cleaner.toml`
+
+Use these files when Shadow View changes raw CSV headers, when the cleaned output needs different columns, or when sorting/color rules change. The Python script should not need edits for normal column and sorting changes.
 
 ## Canonical Names
 
@@ -14,6 +17,9 @@ The script uses internal canonical names such as:
 - `event_time`
 - `device_name`
 - `mgrs`
+- `device_time`
+- `serving_cell`
+- `rsrp`
 
 These names are stable handles used by the config. Raw CSV headers can change, but the canonical names should usually stay the same.
 
@@ -210,7 +216,7 @@ rules = [
 
 When grouped output is enabled, sort columns should refer to output columns by canonical source name or output header.
 
-## Changing Color Coding
+## Changing Row Color Coding
 
 Color coding is used for the optional HTML preview and optional Excel workbook. CSV files cannot store colors.
 
@@ -281,7 +287,7 @@ columns = ["device_name", "bssid", "event_time"]
 
 ## Running With A Custom Config
 
-The default config is `config/co_traveler_csv_cleaner.toml`.
+Each script has its own default config. Co-Traveler uses `config/co_traveler_csv_cleaner.toml`, and Rogue Tower uses `config/rogue_tower_csv_cleaner.toml`.
 
 To use another config file:
 
@@ -297,4 +303,34 @@ Use `--xlsx-output` when the cleaned file needs visible colors in Excel:
 ./scripts/co_traveler_csv_cleaner.py raw.csv cleaned.csv --xlsx-output cleaned.xlsx
 ```
 
+```bash
+./scripts/rogue_tower_csv_cleaner.py raw.csv cleaned.csv --xlsx-output cleaned.xlsx
+```
+
 The workbook uses the same `[color_coding]` settings as the HTML preview. The regular CSV is still written because it is the simplest file for backend workflows and imports.
+
+## Changing Excel Cell Color Rules
+
+Rogue Tower cell colors are controlled by `[cell_color_rules]`.
+
+```toml
+[cell_color_rules]
+enabled = true
+
+[[cell_color_rules.rules]]
+column = "RSRP"
+operator = "greater_than"
+value = 70
+color = "#f4cccc"
+```
+
+Supported operators are:
+
+- `greater_than`
+- `greater_than_or_equal`
+- `less_than`
+- `less_than_or_equal`
+- `equals`
+- `not_equals`
+
+The `column` value must match a cleaned output header, such as `RSRP` or `Serving Cell`. Cell color rules are applied to the optional Excel workbook written with `--xlsx-output`.
