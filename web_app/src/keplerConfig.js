@@ -1,5 +1,3 @@
-import {processRowObject} from '@kepler.gl/processors';
-
 export const POINTS_DATASET_ID = 'shadow_view_points';
 export const TRAIL_DATASET_ID = 'shadow_view_trail';
 
@@ -66,9 +64,39 @@ function tooltipFields(fields) {
     .map((field) => ({name: field.name, format: null}));
 }
 
+function fieldType(value) {
+  if (typeof value === 'number') {
+    return Number.isInteger(value) ? 'integer' : 'real';
+  }
+  if (typeof value === 'boolean') {
+    return 'boolean';
+  }
+  return 'string';
+}
+
+function processRows(rows) {
+  const keys = Array.from(
+    rows.reduce((allKeys, row) => {
+      Object.keys(row).forEach((key) => allKeys.add(key));
+      return allKeys;
+    }, new Set())
+  );
+
+  const sample = rows.find((row) => keys.some((key) => row[key] !== '' && row[key] !== null && row[key] !== undefined)) ?? {};
+
+  return {
+    fields: keys.map((key) => ({
+      name: key,
+      type: fieldType(sample[key]),
+      format: ''
+    })),
+    rows: rows.map((row) => keys.map((key) => row[key] ?? ''))
+  };
+}
+
 export function createKeplerPayload({points, segments, deviceId}) {
-  const pointData = processRowObject(points);
-  const segmentData = processRowObject(segments.length ? segments : [emptySegment(deviceId)]);
+  const pointData = processRows(points);
+  const segmentData = processRows(segments.length ? segments : [emptySegment(deviceId)]);
   const center = boundsFor(points);
 
   return {
