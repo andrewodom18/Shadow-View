@@ -1,8 +1,7 @@
 import {KeplerGl} from '@kepler.gl/components';
-import {addDataToMap} from '@kepler.gl/actions';
+import {addDataToMap, onLayerClick, removeDataset} from '@kepler.gl/actions';
 import {
   AlertTriangle,
-  Bell,
   CheckCircle2,
   Download,
   FileArchive,
@@ -12,20 +11,174 @@ import {
   RotateCcw,
   SlidersHorizontal,
   Upload,
-  WifiOff
+  WifiOff,
+  X
 } from 'lucide-react';
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {useDispatch} from 'react-redux';
+import {useDispatch, useSelector} from 'react-redux';
 
 import {cleanCsvWithBackend, downloadBlob, fetchCleanerProfiles} from './cleanerApi.js';
 import {formatTime, parseShadowViewCsv, parseShadowViewCsvText, prepareDeviceMapData} from './csvShadowView.js';
-import {CUSTOM_MAP_STYLES, createKeplerPayload} from './keplerConfig.js';
+import {CUSTOM_MAP_STYLES, POINTS_DATASET_ID, TRAIL_DATASET_ID, createKeplerPayload} from './keplerConfig.js';
+import {
+  KEPLER_MAP_ID,
+  clickedPoint,
+  keplerInstance,
+  mapClickInfoForPoint,
+  pointIndexByRowNumber,
+  pointLayerIndex
+} from './mapSelection.js';
 import {countBySeverity, deviceMatchesSearch, searchTerm, threatMatchesSearch} from './searchFilters.js';
 import {clearSavedThreatConfig, loadThreatConfig, normalizeThreatConfig, saveThreatConfig} from './threatConfig.js';
-import {analyzeThreats, threatSummary} from './threatDetection.js';
+import {analyzeThreats} from './threatDetection.js';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN || 'shadow-view-local';
 const SIGHTING_LIST_LIMIT = 150;
+const CSV_SESSION_STORAGE_KEY = 'shadow-view-current-csv-id-v1';
+const CSV_SESSION_DB_NAME = 'shadow-view-csv-session';
+const CSV_SESSION_DB_VERSION = 1;
+const CSV_SESSION_STORE_NAME = 'csvFiles';
+
+function getCsvSessionId() {
+  try {
+    return window.sessionStorage.getItem(CSV_SESSION_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function setCsvSessionId(id) {
+  try {
+    window.sessionStorage.setItem(CSV_SESSION_STORAGE_KEY, id);
+  } catch {}
+}
+
+function clearCsvSessionId() {
+  try {
+    window.sessionStorage.removeItem(CSV_SESSION_STORAGE_KEY);
+  } catch {}
+}
+
+function createCsvSessionId() {
+  if (window.crypto?.randomUUID) {
+    return window.crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function openCsvSessionDb() {
+  return new Promise((resolve, reject) => {
+    if (!window.indexedDB) {
+      reject(new Error('IndexedDB is unavailable.'));
+      return;
+    }
+
+    const request = window.indexedDB.open(CSV_SESSION_DB_NAME, CSV_SESSION_DB_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(CSV_SESSION_STORE_NAME)) {
+        db.createObjectStore(CSV_SESSION_STORE_NAME, {keyPath: 'id'});
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error('Could not open CSV session storage.'));
+  });
+}
+
+async function putCsvSessionRecord(record) {
+  const db = await openCsvSessionDb();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(CSV_SESSION_STORE_NAME, 'readwrite');
+    transaction.objectStore(CSV_SESSION_STORE_NAME).put(record);
+    transaction.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    transaction.onerror = () => {
+      db.close();
+      reject(transaction.error ?? new Error('Could not store CSV session.'));
+    };
+  });
+}
+
+async function getCsvSessionRecord(id) {
+  const db = await openCsvSessionDb();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(CSV_SESSION_STORE_NAME, 'readonly');
+    const request = transaction.objectStore(CSV_SESSION_STORE_NAME).get(id);
+    request.onsuccess = () => resolve(request.result ?? null);
+    transaction.oncomplete = () => db.close();
+    transaction.onerror = () => {
+      db.close();
+      reject(transaction.error ?? new Error('Could not restore CSV session.'));
+    };
+  });
+}
+
+async function deleteCsvSessionRecord(id) {
+  const db = await openCsvSessionDb();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(CSV_SESSION_STORE_NAME, 'readwrite');
+    transaction.objectStore(CSV_SESSION_STORE_NAME).delete(id);
+    transaction.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    transaction.onerror = () => {
+      db.close();
+      reject(transaction.error ?? new Error('Could not clear CSV session.'));
+    };
+  });
+}
+
+async function persistCsvFileForSession(file, result, shouldKeep = () => true) {
+  const id = getCsvSessionId() || createCsvSessionId();
+  await putCsvSessionRecord({
+    id,
+    file,
+    result,
+    name: file.name,
+    size: file.size,
+    type: file.type,
+    lastModified: file.lastModified,
+    updatedAt: Date.now()
+  });
+  if (shouldKeep()) {
+    setCsvSessionId(id);
+  } else {
+    await deleteCsvSessionRecord(id);
+  }
+}
+
+async function restoreCsvSessionFromStorage() {
+  const id = getCsvSessionId();
+  if (!id) {
+    return null;
+  }
+
+  const record = await getCsvSessionRecord(id);
+  if (!record?.file || !record?.result) {
+    clearCsvSessionId();
+    return null;
+  }
+
+  const file = new File([record.file], record.name || 'uploaded.csv', {
+    type: record.type || 'text/csv',
+    lastModified: record.lastModified || record.updatedAt || Date.now()
+  });
+  return {
+    file,
+    result: record.result
+  };
+}
+
+async function clearPersistedCsvSession() {
+  const id = getCsvSessionId();
+  clearCsvSessionId();
+  if (id) {
+    await deleteCsvSessionRecord(id);
+  }
+}
 
 function useElementSize() {
   const ref = useRef(null);
@@ -128,7 +281,7 @@ function scannerSightingMeta(point) {
 }
 
 function visibleSightingPoints(points, order) {
-  if (order === 'latest') {
+  if (order === 'newest') {
     return points.slice(-SIGHTING_LIST_LIMIT).reverse();
   }
   return points.slice(0, SIGHTING_LIST_LIMIT);
@@ -230,20 +383,6 @@ function ThreatSettings({config, disabled, onChange, onReset}) {
           value={config.maxDetectionRadiusMeters}
           onChange={(value) => setConfigValue('maxDetectionRadiusMeters', value)}
         />
-        <label className="setting-field" title="Minimum severity required for the notification alert.">
-          <span>Notify at</span>
-          <select
-            aria-label="Notify at"
-            disabled={disabled}
-            title="Minimum severity required for the notification alert."
-            value={config.notifyAtSeverity}
-            onChange={(event) => setConfigValue('notifyAtSeverity', event.target.value)}
-          >
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-          </select>
-        </label>
         <SettingNumber
           disabled={disabled}
           help="Maximum number of matching BSSIDs shown in the threat list."
@@ -283,67 +422,109 @@ function ThreatSettings({config, disabled, onChange, onReset}) {
 }
 
 function ThreatPanel({
+  deviceOptions,
+  filteredDeviceCount,
   filteredCount,
-  notification,
+  onDeviceChange,
   onFilterChange,
   onSearchChange,
   onSelectThreat,
-  notifyAtSeverity,
   searchValue,
+  selectedDevice,
   selectedDeviceId,
+  selectedDeviceOutsideFilter,
+  selectedDeviceThreat,
+  selectedThreatBssid,
   severityFilter,
+  searchedDeviceCount,
   threatCounts,
-  totalThreatCounts,
+  totalDeviceCount,
   threats,
   visibleThreats
 }) {
   const visibleLabel = severityFilter === 'all' ? 'matches' : `${severityLabel(severityFilter).toLowerCase()} matches`;
   const hasSearch = searchTerm(searchValue) !== '';
+  const hasDeviceFilter = hasSearch || severityFilter !== 'all';
 
   return (
-    <section className="panel threat-panel" aria-live="polite">
+    <section className="panel review-panel" aria-live="polite">
       <div className="section-heading">
-        <h2>Threat Indicators</h2>
-        <span>{threats.length.toLocaleString()}</span>
-      </div>
-      <div className="severity-filter" role="group" aria-label="Threat severity filter">
-        {['all', 'high', 'medium', 'low'].map((severity) => (
-          <button
-            aria-pressed={severityFilter === severity}
-            className={severityFilter === severity ? 'active' : ''}
-            key={severity}
-            onClick={() => onFilterChange(severity)}
-            type="button"
-          >
-            <span>{severity === 'all' ? 'All' : severityLabel(severity)}</span>
-            <strong>{(threatCounts[severity] ?? 0).toLocaleString()}</strong>
-          </button>
-        ))}
+        <h2>BSSID Review</h2>
+        <span>{totalDeviceCount.toLocaleString()}</span>
       </div>
       <label className="search-field">
-        <span>Search threats</span>
+        <span>Search BSSIDs and threats</span>
         <input
           onChange={(event) => onSearchChange(event.target.value)}
-          placeholder="BSSID or SSID"
+          placeholder="BSSID, SSID, or severity"
           type="search"
           value={searchValue}
         />
       </label>
-      {notification ? (
-        <div className={`threat-alert ${notification.highestSeverity}`}>
-          <Bell aria-hidden="true" size={16} />
-          <span>
-            {notification.count.toLocaleString()} BSSID{notification.count === 1 ? '' : 's'} at or above{' '}
-            {severityLabel(notifyAtSeverity).toLowerCase()}. Highest severity:{' '}
-            {severityLabel(notification.highestSeverity)}. Current matches: high {totalThreatCounts.high.toLocaleString()},
-            medium {totalThreatCounts.medium.toLocaleString()}, low {totalThreatCounts.low.toLocaleString()}.
-          </span>
-        </div>
-      ) : threats.length ? (
-        <p className="empty-state">Matches are below the notification threshold.</p>
-      ) : (
-        <p className="empty-state">No BSSIDs match the current criteria.</p>
-      )}
+      <div className="severity-filter" role="group" aria-label="Threat severity filter">
+        {['all', 'high', 'medium', 'low'].map((severity) => {
+          const label = severity === 'all' ? 'All BSSIDs' : severityLabel(severity);
+          const count = severity === 'all' ? searchedDeviceCount : (threatCounts[severity] ?? 0);
+          return (
+            <button
+              aria-pressed={severityFilter === severity}
+              className={`${severity} ${severityFilter === severity ? 'active' : ''}`.trim()}
+              key={severity}
+              onClick={() => onFilterChange(severity)}
+              type="button"
+            >
+              <span>{label}</span>
+              <strong>{count.toLocaleString()}</strong>
+            </button>
+          );
+        })}
+      </div>
+      <div className="device-picker">
+        <label className="field-label" htmlFor="device-select">Mapped BSSID</label>
+        <select
+          id="device-select"
+          value={selectedDeviceId}
+          onChange={(event) => onDeviceChange(event.target.value)}
+        >
+          {deviceOptions.map((device) => (
+            <option key={device.id} value={device.id}>
+              {device.currentOutsideFilter ? 'Current: ' : ''}
+              {device.label}
+              {device.threatSeverity ? ` [${severityLabel(device.threatSeverity)}]` : ''}
+              {' '}({device.count.toLocaleString()})
+            </option>
+          ))}
+        </select>
+        {hasDeviceFilter && (
+          <p className="list-note">
+            {filteredDeviceCount > 0
+              ? `Showing ${filteredDeviceCount.toLocaleString()} of ${totalDeviceCount.toLocaleString()} BSSIDs.${
+                  selectedDeviceOutsideFilter ? ' Current selection is kept at top.' : ''
+                }`
+              : 'No BSSIDs match the current search and severity filter. The current map selection is unchanged.'}
+          </p>
+        )}
+        {selectedDevice && (
+          <p className="device-summary">
+            {selectedDeviceThreat && (
+              <>
+                <span className={`severity-badge inline ${selectedDeviceThreat.severity}`}>
+                  {severityLabel(selectedDeviceThreat.severity)}
+                </span>{' '}
+              </>
+            )}
+            {selectedDevice.count.toLocaleString()} sightings
+            {selectedDevice.firstTimeMs !== null && (
+              <> from {formatTime(selectedDevice.firstTimeMs)} to {formatTime(selectedDevice.lastTimeMs)}</>
+            )}
+          </p>
+        )}
+      </div>
+      <div className="panel-subheading">
+        <h3>Threat Indicators</h3>
+        <span>{threats.length.toLocaleString()}</span>
+      </div>
+      {!threats.length && <p className="empty-state">No BSSIDs match the current criteria.</p>}
       {Boolean(filteredCount) && (
         <p className="list-note">
           Showing {visibleThreats.length.toLocaleString()} of {filteredCount.toLocaleString()} {visibleLabel}.
@@ -356,7 +537,7 @@ function ThreatPanel({
         <div className="threat-list">
           {visibleThreats.map((threat) => (
             <button
-              className={selectedDeviceId === threat.bssid ? 'threat-item active' : 'threat-item'}
+              className={`threat-item ${threat.severity}${selectedThreatBssid === threat.bssid ? ' active' : ''}`}
               key={threat.bssid}
               onClick={() => onSelectThreat(threat)}
               type="button"
@@ -396,21 +577,42 @@ function DetailTable({row}) {
   );
 }
 
+function MapScopeStatus({pointCount, selectedDevice, selectedMapThreat, selectedPoint}) {
+  if (!selectedDevice) {
+    return null;
+  }
+
+  const severity = selectedMapThreat?.severity ?? '';
+  const mode = selectedMapThreat ? 'Threat-qualified points' : 'Scanner points';
+
+  return (
+    <div className={`map-scope-status ${severity}`.trim()} aria-live="polite">
+      <span>Map data</span>
+      <strong>{selectedDevice.id}</strong>
+      <small>
+        {pointCount.toLocaleString()} {mode.toLowerCase()}
+        {selectedPoint ? ` | Row ${selectedPoint.__row_number}` : ''}
+      </small>
+    </div>
+  );
+}
+
 export default function App() {
   const dispatch = useDispatch();
+  const clickedMapObject = useSelector((state) => keplerInstance(state)?.visState?.clicked ?? null);
+  const selectedPointLayerIndex = useSelector((state) => pointLayerIndex(keplerInstance(state)));
   const [mapRef, mapSize] = useElementSize();
   const [selectedFile, setSelectedFile] = useState(null);
   const [parsedCsv, setParsedCsv] = useState(null);
   const [selectedDeviceId, setSelectedDeviceId] = useState('');
+  const [selectedThreatBssid, setSelectedThreatBssid] = useState('');
   const [deviceMapData, setDeviceMapData] = useState({points: [], segments: []});
   const [selectedPoint, setSelectedPoint] = useState(null);
   const [status, setStatus] = useState('Choose a CSV to map detections.');
   const [parseProgress, setParseProgress] = useState(null);
   const [isParsing, setIsParsing] = useState(false);
   const [error, setError] = useState('');
-  const [elapsedMs, setElapsedMs] = useState(null);
-  const [cleanerOptions, setCleanerOptions] = useState([]);
-  const [cleanerId, setCleanerId] = useState('auto');
+  const [detectedCleanerFormat, setDetectedCleanerFormat] = useState(null);
   const [cleanOutputs, setCleanOutputs] = useState({csv: true, xlsx: true, html: false});
   const [cleanerApi, setCleanerApi] = useState({available: false, loading: true, message: 'Checking cleaner API...'});
   const [isCleaning, setIsCleaning] = useState(false);
@@ -419,15 +621,19 @@ export default function App() {
   const [baseThreatConfig, setBaseThreatConfig] = useState(() => normalizeThreatConfig());
   const [threatConfig, setThreatConfig] = useState(() => normalizeThreatConfig());
   const [threatSeverityFilter, setThreatSeverityFilter] = useState('all');
-  const [threatSearch, setThreatSearch] = useState('');
-  const [deviceSearch, setDeviceSearch] = useState('');
-  const [sightingOrder, setSightingOrder] = useState('earliest');
+  const [reviewSearch, setReviewSearch] = useState('');
+  const [sightingOrder, setSightingOrder] = useState('oldest');
   const fileInputRef = useRef(null);
+  const loadRequestRef = useRef(0);
 
   const selectedDevice = useMemo(
     () => parsedCsv?.devices.find((device) => device.id === selectedDeviceId) ?? null,
     [parsedCsv, selectedDeviceId]
   );
+  const csvProgressText = parseProgress
+    ? `${parseProgress.rowNumber.toLocaleString()} rows scanned, ${parseProgress.mappedRows.toLocaleString()} mapped`
+    : '';
+  const showStatusCard = isParsing || Boolean(error);
   const hasCleanOutput = cleanOutputs.csv || cleanOutputs.xlsx || cleanOutputs.html;
   const threats = useMemo(
     () => (parsedCsv ? analyzeThreats(parsedCsv.observations, threatConfig) : []),
@@ -437,15 +643,10 @@ export default function App() {
     () => new Map(threats.map((threat) => [threat.bssid, threat])),
     [threats]
   );
-  const notification = useMemo(
-    () => threatSummary(threats, threatConfig.notifyAtSeverity),
-    [threatConfig.notifyAtSeverity, threats]
-  );
-  const totalThreatCounts = useMemo(() => countBySeverity(threats), [threats]);
-  const normalizedThreatSearch = useMemo(() => searchTerm(threatSearch), [threatSearch]);
+  const normalizedReviewSearch = useMemo(() => searchTerm(reviewSearch), [reviewSearch]);
   const searchedThreats = useMemo(
-    () => threats.filter((threat) => threatMatchesSearch(threat, normalizedThreatSearch)),
-    [normalizedThreatSearch, threats]
+    () => threats.filter((threat) => threatMatchesSearch(threat, normalizedReviewSearch)),
+    [normalizedReviewSearch, threats]
   );
   const threatCounts = useMemo(() => countBySeverity(searchedThreats), [searchedThreats]);
   const filteredThreats = useMemo(
@@ -456,48 +657,130 @@ export default function App() {
     [searchedThreats, threatSeverityFilter]
   );
   const visibleThreats = filteredThreats.slice(0, threatConfig.maxThreatsToShow);
-  const normalizedDeviceSearch = useMemo(() => searchTerm(deviceSearch), [deviceSearch]);
-  const filteredDevices = useMemo(() => {
+  const searchedDevices = useMemo(() => {
     if (!parsedCsv) {
       return [];
     }
 
     return parsedCsv.devices.filter((device) =>
-      deviceMatchesSearch(device, threatsByBssid.get(device.id), normalizedDeviceSearch)
+      deviceMatchesSearch(device, threatsByBssid.get(device.id), normalizedReviewSearch)
     );
-  }, [normalizedDeviceSearch, parsedCsv, threatsByBssid]);
+  }, [normalizedReviewSearch, parsedCsv, threatsByBssid]);
+  const filteredDevices = useMemo(() => {
+    if (threatSeverityFilter === 'all') {
+      return searchedDevices;
+    }
+
+    return searchedDevices.filter((device) => threatsByBssid.get(device.id)?.severity === threatSeverityFilter);
+  }, [searchedDevices, threatSeverityFilter, threatsByBssid]);
   const selectedDeviceOutsideFilter = Boolean(
     selectedDevice && !filteredDevices.some((device) => device.id === selectedDevice.id)
   );
+  const selectedDeviceThreat = selectedDevice ? threatsByBssid.get(selectedDevice.id) ?? null : null;
+  const selectedMapThreat = selectedThreatBssid === selectedDeviceId ? selectedDeviceThreat : null;
   const deviceOptions = useMemo(() => {
-    if (!selectedDeviceOutsideFilter) {
-      return filteredDevices;
-    }
-    return [{...selectedDevice, currentOutsideFilter: true}, ...filteredDevices];
-  }, [filteredDevices, selectedDevice, selectedDeviceOutsideFilter]);
+    const withThreatSeverity = (device) => ({
+      ...device,
+      threatSeverity: threatsByBssid.get(device.id)?.severity ?? ''
+    });
 
-  const loadParsedCsv = useCallback((result, elapsed) => {
-    setElapsedMs(elapsed);
+    if (!selectedDeviceOutsideFilter) {
+      return filteredDevices.map(withThreatSeverity);
+    }
+    return [{...withThreatSeverity(selectedDevice), currentOutsideFilter: true}, ...filteredDevices.map(withThreatSeverity)];
+  }, [filteredDevices, selectedDevice, selectedDeviceOutsideFilter, threatsByBssid]);
+
+  const loadParsedCsv = useCallback((result) => {
+    setDetectedCleanerFormat(result.cleanerFormat ?? null);
+    if (result.cleanOnly) {
+      setParsedCsv(null);
+      setSelectedDeviceId('');
+      setSelectedThreatBssid('');
+      setSelectedPoint(null);
+      setDeviceMapData({points: [], segments: []});
+      setStatus('');
+      return;
+    }
+
     setParsedCsv(result);
     setSelectedDeviceId(result.devices[0]?.id ?? '');
-    setStatus(`Loaded ${result.fileName}. ${result.mappedRows.toLocaleString()} mappable rows found.`);
+    setSelectedThreatBssid('');
+    setStatus('');
   }, []);
+
+  const beginCsvRead = useCallback((message) => {
+    loadRequestRef.current += 1;
+    setSelectedFile(null);
+    setIsParsing(true);
+    setError('');
+    setCleanError('');
+    setDownloadInfo(null);
+    setDetectedCleanerFormat(null);
+    setParseProgress(null);
+    setParsedCsv(null);
+    setThreatSeverityFilter('all');
+    setReviewSearch('');
+    setSightingOrder('oldest');
+    setSelectedDeviceId('');
+    setSelectedThreatBssid('');
+    setSelectedPoint(null);
+    setDeviceMapData({points: [], segments: []});
+    setStatus(message);
+    return loadRequestRef.current;
+  }, []);
+
+  const completeCsvRead = useCallback((file, result, loadId, options = {}) => {
+    if (loadRequestRef.current !== loadId) {
+      return false;
+    }
+
+    setSelectedFile(file);
+    loadParsedCsv(result);
+    if (options.persist) {
+      persistCsvFileForSession(file, result, () => loadRequestRef.current === loadId).catch((caughtError) => {
+        console.warn('Could not persist CSV for reload restore.', caughtError);
+      });
+    }
+    return true;
+  }, [loadParsedCsv]);
+
+  const resetCsvUpload = useCallback(() => {
+    loadRequestRef.current += 1;
+    setSelectedFile(null);
+    setParsedCsv(null);
+    setSelectedDeviceId('');
+    setSelectedThreatBssid('');
+    setSelectedPoint(null);
+    setDeviceMapData({points: [], segments: []});
+    setStatus('Choose a CSV to map detections.');
+    setParseProgress(null);
+    setIsParsing(false);
+    setError('');
+    setCleanError('');
+    setDownloadInfo(null);
+    setDetectedCleanerFormat(null);
+    setThreatSeverityFilter('all');
+    setReviewSearch('');
+    setSightingOrder('oldest');
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+    dispatch(removeDataset(POINTS_DATASET_ID));
+    dispatch(removeDataset(TRAIL_DATASET_ID));
+  }, [dispatch]);
 
   useEffect(() => {
     const controller = new AbortController();
     setCleanerApi({available: false, loading: true, message: 'Checking cleaner API...'});
 
     fetchCleanerProfiles(controller.signal)
-      .then((cleaners) => {
-        setCleanerOptions(cleaners);
+      .then(() => {
         setCleanerApi({available: true, loading: false, message: 'Cleaner API ready.'});
       })
       .catch((caughtError) => {
         if (controller.signal.aborted) {
           return;
         }
-
-        setCleanerOptions([]);
         setCleanerApi({
           available: false,
           loading: false,
@@ -529,41 +812,78 @@ export default function App() {
     return () => controller.abort();
   }, []);
 
+  useEffect(() => {
+    if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('sampleCsv')) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    const restoreRequestId = loadRequestRef.current;
+
+    restoreCsvSessionFromStorage()
+      .then((session) => {
+        if (!session || cancelled || loadRequestRef.current !== restoreRequestId) {
+          return;
+        }
+
+        loadRequestRef.current += 1;
+        setSelectedFile(session.file);
+        setIsParsing(false);
+        setError('');
+        setCleanError('');
+        setDownloadInfo(null);
+        setParseProgress(null);
+        setThreatSeverityFilter('all');
+        setReviewSearch('');
+        setSightingOrder('oldest');
+        setSelectedThreatBssid('');
+        setSelectedPoint(null);
+        loadParsedCsv(session.result);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+      })
+      .catch((caughtError) => {
+        if (cancelled || !getCsvSessionId()) {
+          return;
+        }
+        console.warn('Could not restore CSV from session storage.', caughtError);
+        clearCsvSessionId();
+        setError('CSV could not be restored. Choose it again.');
+        setStatus('CSV could not be restored. Choose it again.');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loadParsedCsv]);
+
   const handleFile = useCallback(async (event) => {
     const file = event.target.files?.[0];
     if (!file) {
       return;
     }
 
-    setSelectedFile(file);
-    setIsParsing(true);
-    setError('');
-    setCleanError('');
-    setDownloadInfo(null);
-    setElapsedMs(null);
-    setParseProgress(null);
-    setParsedCsv(null);
-    setThreatSeverityFilter('all');
-    setThreatSearch('');
-    setDeviceSearch('');
-    setSightingOrder('earliest');
-    setSelectedDeviceId('');
-    setSelectedPoint(null);
-    setDeviceMapData({points: [], segments: []});
-    setStatus(`Reading ${file.name}...`);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
 
-    const started = performance.now();
+    const loadId = beginCsvRead(`Reading ${file.name}...`);
     try {
       const result = await parseShadowViewCsv(file, setParseProgress);
-      const elapsed = performance.now() - started;
-      loadParsedCsv(result, elapsed);
+      completeCsvRead(file, result, loadId, {persist: true});
     } catch (caughtError) {
+      if (loadRequestRef.current !== loadId) {
+        return;
+      }
       setError(caughtError instanceof Error ? caughtError.message : String(caughtError));
       setStatus('CSV could not be mapped.');
     } finally {
-      setIsParsing(false);
+      if (loadRequestRef.current === loadId) {
+        setIsParsing(false);
+      }
     }
-  }, [loadParsedCsv]);
+  }, [beginCsvRead, completeCsvRead]);
 
   const setOutput = useCallback((name, checked) => {
     setCleanOutputs((current) => ({...current, [name]: checked}));
@@ -577,6 +897,13 @@ export default function App() {
     clearSavedThreatConfig();
     setThreatConfig(baseThreatConfig);
   }, [baseThreatConfig]);
+
+  const handleRemoveCsv = useCallback(() => {
+    resetCsvUpload();
+    clearPersistedCsvSession().catch((caughtError) => {
+      console.warn('Could not clear CSV reload restore data.', caughtError);
+    });
+  }, [resetCsvUpload]);
 
   const handleClean = useCallback(async () => {
     if (!selectedFile) {
@@ -595,7 +922,7 @@ export default function App() {
     try {
       const result = await cleanCsvWithBackend({
         file: selectedFile,
-        cleanerId,
+        cleanerId: 'auto',
         includeCsv: cleanOutputs.csv,
         includeXlsx: cleanOutputs.xlsx,
         includeHtml: cleanOutputs.html
@@ -607,49 +934,40 @@ export default function App() {
     } finally {
       setIsCleaning(false);
     }
-  }, [cleanOutputs, cleanerId, hasCleanOutput, selectedFile]);
+  }, [cleanOutputs, hasCleanOutput, selectedFile]);
 
   useEffect(() => {
     if (!import.meta.env.DEV) {
       return undefined;
     }
 
-    window.__shadowViewLoadCsvTextForTest = (csvText, fileName = 'test.csv') => {
-      setIsParsing(true);
-      setError('');
-      setCleanError('');
-      setDownloadInfo(null);
-      setElapsedMs(null);
-      setParseProgress(null);
-      setParsedCsv(null);
-      setSelectedFile(new File([csvText], fileName, {type: 'text/csv'}));
-      setThreatSeverityFilter('all');
-      setThreatSearch('');
-      setDeviceSearch('');
-      setSightingOrder('earliest');
-      setSelectedDeviceId('');
-      setSelectedPoint(null);
-      setDeviceMapData({points: [], segments: []});
-      const started = performance.now();
+    window.__shadowViewLoadCsvTextForTest = (csvText, fileName = 'test.csv', options = {}) => {
+      const file = new File([csvText], fileName, {type: 'text/csv'});
+      const loadId = beginCsvRead(`Reading ${fileName}...`);
 
       try {
         const result = parseShadowViewCsvText(csvText, fileName, setParseProgress);
-        loadParsedCsv(result, performance.now() - started);
+        completeCsvRead(file, result, loadId, {persist: Boolean(options.persist)});
         return result;
       } catch (caughtError) {
+        if (loadRequestRef.current !== loadId) {
+          throw caughtError;
+        }
         const message = caughtError instanceof Error ? caughtError.message : String(caughtError);
         setError(message);
         setStatus('CSV could not be mapped.');
         throw caughtError;
       } finally {
-        setIsParsing(false);
+        if (loadRequestRef.current === loadId) {
+          setIsParsing(false);
+        }
       }
     };
 
     return () => {
       delete window.__shadowViewLoadCsvTextForTest;
     };
-  }, [loadParsedCsv]);
+  }, [beginCsvRead, completeCsvRead]);
 
   useEffect(() => {
     if (!import.meta.env.DEV) {
@@ -662,23 +980,9 @@ export default function App() {
     }
 
     let cancelled = false;
+    const persistSampleCsv = new URLSearchParams(window.location.search).get('persistSampleCsv') === '1';
     const sampleFileName = displayNameFromUrl(sampleCsv);
-    setIsParsing(true);
-    setError('');
-    setCleanError('');
-    setDownloadInfo(null);
-    setElapsedMs(null);
-    setParseProgress(null);
-    setParsedCsv(null);
-    setThreatSeverityFilter('all');
-    setThreatSearch('');
-    setDeviceSearch('');
-    setSightingOrder('earliest');
-    setSelectedDeviceId('');
-    setSelectedPoint(null);
-    setDeviceMapData({points: [], segments: []});
-    setStatus(`Reading ${sampleFileName}...`);
-    const started = performance.now();
+    const loadId = beginCsvRead(`Reading ${sampleFileName}...`);
 
     fetch(sampleCsv)
       .then((response) => {
@@ -691,19 +995,20 @@ export default function App() {
         if (cancelled) {
           return;
         }
-        setSelectedFile(new File([csvText], sampleFileName, {type: 'text/csv'}));
+        const file = new File([csvText], sampleFileName, {type: 'text/csv'});
         const result = parseShadowViewCsvText(csvText, sampleFileName, setParseProgress);
-        loadParsedCsv(result, performance.now() - started);
+        completeCsvRead(file, result, loadId, {persist: persistSampleCsv});
       })
       .catch((caughtError) => {
-        if (cancelled) {
+        if (cancelled || loadRequestRef.current !== loadId) {
           return;
         }
         setError(caughtError instanceof Error ? caughtError.message : String(caughtError));
+        setDetectedCleanerFormat(null);
         setStatus('CSV could not be mapped.');
       })
       .finally(() => {
-        if (!cancelled) {
+        if (!cancelled && loadRequestRef.current === loadId) {
           setIsParsing(false);
         }
       });
@@ -711,30 +1016,66 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [loadParsedCsv]);
+  }, [beginCsvRead, completeCsvRead]);
 
   useEffect(() => {
     if (!parsedCsv || !selectedDeviceId) {
       return undefined;
     }
 
-    const nextMapData = prepareDeviceMapData(parsedCsv.observations, selectedDeviceId);
+    const nextMapData = prepareDeviceMapData(parsedCsv.observations, selectedDeviceId, {
+      includedRowNumbers: selectedMapThreat?.qualifyingRowNumbers
+    });
     setDeviceMapData(nextMapData);
+    const payload = createKeplerPayload({...nextMapData, deviceId: selectedDeviceId});
+    dispatch(addDataToMap(payload));
     const timer = window.setTimeout(() => {
-      dispatch(addDataToMap(createKeplerPayload({...nextMapData, deviceId: selectedDeviceId})));
+      dispatch(addDataToMap(payload));
     }, 500);
 
     return () => window.clearTimeout(timer);
-  }, [dispatch, parsedCsv, selectedDeviceId]);
+  }, [dispatch, parsedCsv, selectedDeviceId, selectedMapThreat]);
 
   const visiblePoints = useMemo(
     () => visibleSightingPoints(deviceMapData.points, sightingOrder),
     [deviceMapData.points, sightingOrder]
   );
+  const pointIndexesByRowNumber = useMemo(
+    () => pointIndexByRowNumber(deviceMapData.points),
+    [deviceMapData.points]
+  );
+  const selectedPointOutsideVisible = Boolean(
+    selectedPoint && !visiblePoints.some((point) => point.__row_number === selectedPoint.__row_number)
+  );
+  const sightingListPoints = useMemo(
+    () => (selectedPointOutsideVisible ? [selectedPoint, ...visiblePoints] : visiblePoints),
+    [selectedPoint, selectedPointOutsideVisible, visiblePoints]
+  );
 
   useEffect(() => {
     setSelectedPoint(visiblePoints[0] ?? null);
   }, [visiblePoints]);
+
+  useEffect(() => {
+    const point = clickedPoint(clickedMapObject, deviceMapData.points);
+    if (!point) {
+      return;
+    }
+
+    setSelectedPoint((current) => (current?.__row_number === point.__row_number ? current : point));
+  }, [clickedMapObject, deviceMapData.points]);
+
+  useEffect(() => {
+    if (!selectedPoint) {
+      return;
+    }
+
+    const pointIndex = pointIndexesByRowNumber.get(selectedPoint.__row_number);
+    const clickInfo = mapClickInfoForPoint(selectedPoint, pointIndex, selectedPointLayerIndex);
+    if (clickInfo) {
+      dispatch(onLayerClick(clickInfo));
+    }
+  }, [dispatch, pointIndexesByRowNumber, selectedPoint, selectedPointLayerIndex]);
 
   return (
     <main className="app-shell">
@@ -747,11 +1088,7 @@ export default function App() {
           </div>
         </div>
 
-        <section className="panel upload-panel">
-          <div>
-            <h2>CSV Upload</h2>
-            <p>Load a Shadow View CSV to review scanner detections by BSSID.</p>
-          </div>
+        <section className={selectedFile ? 'panel upload-panel loaded' : 'panel upload-panel'}>
           <input
             accept=".csv,text/csv"
             className="visually-hidden"
@@ -759,35 +1096,165 @@ export default function App() {
             ref={fileInputRef}
             type="file"
           />
-          <button
-            className="primary-button"
-            disabled={isParsing}
-            onClick={() => fileInputRef.current?.click()}
-            type="button"
-          >
-            {isParsing ? <Loader2 aria-hidden="true" className="spin" size={16} /> : <Upload aria-hidden="true" size={16} />}
-            <span>{isParsing ? 'Reading CSV...' : 'Choose CSV'}</span>
-          </button>
-          {selectedFile && (
+          {selectedFile ? (
             <div className="file-pill">
               <FileText aria-hidden="true" size={14} />
-              <span>{selectedFile.name}</span>
-              <small>{formatFileSize(selectedFile.size)}</small>
+              <div className="file-copy">
+                <div className="file-title">
+                  <span>{selectedFile.name}</span>
+                  <small>{formatFileSize(selectedFile.size)}</small>
+                </div>
+              </div>
+              <button
+                aria-label={`Remove ${selectedFile.name}`}
+                className="file-remove-button"
+                disabled={isCleaning}
+                onClick={handleRemoveCsv}
+                title="Remove CSV"
+                type="button"
+              >
+                <X aria-hidden="true" size={16} />
+              </button>
             </div>
+          ) : (
+            <>
+              <div>
+                <h2>CSV Upload</h2>
+                <p>Add a Shadow View CSV</p>
+              </div>
+              <button
+                className="primary-button"
+                disabled={isParsing}
+                onClick={() => fileInputRef.current?.click()}
+                type="button"
+              >
+                {isParsing ? <Loader2 aria-hidden="true" className="spin" size={16} /> : <Upload aria-hidden="true" size={16} />}
+                <span>{isParsing ? 'Reading CSV...' : 'Choose CSV'}</span>
+              </button>
+            </>
           )}
         </section>
 
-        <section className="status-card" aria-live="polite">
-          <p>{status}</p>
-          {parseProgress && (
-            <div className="progress-copy">
-              {parseProgress.rowNumber.toLocaleString()} rows scanned, {parseProgress.mappedRows.toLocaleString()} mapped
-            </div>
-          )}
-          {elapsedMs !== null && <div className="progress-copy">Time taken: {(elapsedMs / 1000).toFixed(2)} seconds</div>}
-          {isParsing && <div className="progress-bar"><span /></div>}
-          {error && <div className="error-text">{error}</div>}
-        </section>
+        {showStatusCard && (
+          <section className="status-card" aria-live="polite">
+            {isParsing && status && <p>{status}</p>}
+            {isParsing && csvProgressText && <div className="progress-copy">{csvProgressText}</div>}
+            {isParsing && <div className="progress-bar"><span /></div>}
+            {error && <div className="error-text">{error}</div>}
+          </section>
+        )}
+
+        {parsedCsv && (
+          <>
+            <section className="stats-grid">
+              <Stat label="Mappable rows" value={parsedCsv.mappedRows.toLocaleString()} />
+              <Stat label="BSSIDs" value={parsedCsv.devices.length.toLocaleString()} />
+              <Stat label="Skipped rows" value={parsedCsv.skippedRows.toLocaleString()} />
+            </section>
+
+            <ThreatPanel
+              deviceOptions={deviceOptions}
+              filteredDeviceCount={filteredDevices.length}
+              filteredCount={filteredThreats.length}
+              onDeviceChange={(deviceId) => {
+                setSelectedDeviceId(deviceId);
+                setSelectedThreatBssid('');
+              }}
+              onFilterChange={setThreatSeverityFilter}
+              onSearchChange={setReviewSearch}
+              onSelectThreat={(threat) => {
+                setSelectedDeviceId(threat.bssid);
+                setSelectedThreatBssid(threat.bssid);
+              }}
+              searchValue={reviewSearch}
+              selectedDevice={selectedDevice}
+              selectedDeviceId={selectedDeviceId}
+              selectedDeviceOutsideFilter={selectedDeviceOutsideFilter}
+              selectedDeviceThreat={selectedDeviceThreat}
+              selectedThreatBssid={selectedThreatBssid}
+              severityFilter={threatSeverityFilter}
+              searchedDeviceCount={searchedDevices.length}
+              threatCounts={threatCounts}
+              totalDeviceCount={parsedCsv.devices.length}
+              threats={threats}
+              visibleThreats={visibleThreats}
+            />
+
+            <section className="panel sightings-panel">
+              <div className="section-heading">
+                <h2>{selectedMapThreat ? 'Threat Sightings' : 'Scanner Sightings'}</h2>
+                <span>{deviceMapData.points.length.toLocaleString()}</span>
+              </div>
+              {selectedMapThreat && (
+                <div className="scope-note">
+                  <p>
+                    Showing {selectedMapThreat.metrics.qualifyingScanCount.toLocaleString()} qualifying sightings used
+                    for this threat.
+                  </p>
+                  <button className="tertiary-button" onClick={() => setSelectedThreatBssid('')} type="button">
+                    Show all sightings
+                  </button>
+                </div>
+              )}
+              {deviceMapData.points.length > SIGHTING_LIST_LIMIT && (
+                <div className="segmented-control" role="group" aria-label="Sighting order">
+                  <button
+                    aria-pressed={sightingOrder === 'oldest'}
+                    className={sightingOrder === 'oldest' ? 'active' : ''}
+                    onClick={() => setSightingOrder('oldest')}
+                    type="button"
+                  >
+                    Oldest
+                  </button>
+                  <button
+                    aria-pressed={sightingOrder === 'newest'}
+                    className={sightingOrder === 'newest' ? 'active' : ''}
+                    onClick={() => setSightingOrder('newest')}
+                    type="button"
+                  >
+                    Newest
+                  </button>
+                </div>
+              )}
+              <div className="sighting-list">
+                {sightingListPoints.map((point) => {
+                  const isActive = selectedPoint?.__row_number === point.__row_number;
+                  const isPinned = selectedPointOutsideVisible && isActive;
+                  return (
+                    <button
+                      className={isActive ? `sighting active${isPinned ? ' pinned' : ''}` : 'sighting'}
+                      key={point.__row_number}
+                      onClick={() => setSelectedPoint(point)}
+                      type="button"
+                    >
+                      <strong>#{point.__sequence}</strong>
+                      <span>{point.__event_time || 'Unknown time'}</span>
+                      <small>{scannerSightingMeta(point)}</small>
+                    </button>
+                  );
+                })}
+              </div>
+              {selectedPointOutsideVisible && (
+                <p className="list-note">Selected map sighting is pinned above the current list.</p>
+              )}
+              {deviceMapData.points.length > visiblePoints.length && (
+                <p className="list-note">
+                  Showing {sightingOrder === 'newest' ? 'newest' : 'oldest'} {visiblePoints.length} sightings.
+                  Kepler shows all {selectedMapThreat ? 'threat-qualified points' : 'scanner points'}.
+                </p>
+              )}
+            </section>
+
+            <section className="panel">
+              <ThreatSettings
+                config={threatConfig}
+                disabled={isParsing}
+                onChange={handleThreatConfigChange}
+                onReset={handleThreatConfigReset}
+              />
+            </section>
+          </>
+        )}
 
         <section className="panel cleaner-panel">
           <div className="section-heading">
@@ -800,21 +1267,11 @@ export default function App() {
             </span>
           </div>
 
-          <label className="field-label" htmlFor="cleaner-select">Cleaner</label>
-          <select
-            disabled={!cleanerApi.available || isCleaning}
-            id="cleaner-select"
-            value={cleanerId}
-            onChange={(event) => setCleanerId(event.target.value)}
-          >
-            {(cleanerOptions.length ? cleanerOptions : [{cleaner_id: 'auto', display_name: 'Auto-detect cleaner'}]).map(
-              (cleaner) => (
-                <option key={cleaner.cleaner_id} value={cleaner.cleaner_id}>
-                  {cleaner.display_name}
-                </option>
-              )
-            )}
-          </select>
+          {detectedCleanerFormat && (
+            <p className="auto-cleaner-line">
+              <span>Auto Cleaner:</span> <strong>{detectedCleanerFormat.displayName}</strong>
+            </p>
+          )}
 
           <div className="output-grid" role="group" aria-label="Output formats">
             <OutputToggle
@@ -869,152 +1326,25 @@ export default function App() {
             </div>
           )}
         </section>
-
-        {parsedCsv && (
-          <>
-            <section className="stats-grid">
-              <Stat label="Mappable rows" value={parsedCsv.mappedRows.toLocaleString()} />
-              <Stat label="BSSIDs" value={parsedCsv.devices.length.toLocaleString()} />
-              <Stat label="Skipped rows" value={parsedCsv.skippedRows.toLocaleString()} />
-            </section>
-
-            <ThreatPanel
-              filteredCount={filteredThreats.length}
-              notification={notification}
-              onFilterChange={setThreatSeverityFilter}
-              onSearchChange={setThreatSearch}
-              onSelectThreat={(threat) => setSelectedDeviceId(threat.bssid)}
-              notifyAtSeverity={threatConfig.notifyAtSeverity}
-              searchValue={threatSearch}
-              selectedDeviceId={selectedDeviceId}
-              severityFilter={threatSeverityFilter}
-              threatCounts={threatCounts}
-              totalThreatCounts={totalThreatCounts}
-              threats={threats}
-              visibleThreats={visibleThreats}
-            />
-
-            <section className="panel">
-              <ThreatSettings
-                config={threatConfig}
-                disabled={isParsing}
-                onChange={handleThreatConfigChange}
-                onReset={handleThreatConfigReset}
-              />
-            </section>
-
-            <section className="panel">
-              <label className="field-label" htmlFor="device-select">BSSID</label>
-              <label className="search-field compact">
-                <span>Filter BSSIDs</span>
-                <input
-                  onChange={(event) => setDeviceSearch(event.target.value)}
-                  placeholder="BSSID, SSID, or severity"
-                  type="search"
-                  value={deviceSearch}
-                />
-              </label>
-              <select
-                id="device-select"
-                value={selectedDeviceId}
-                onChange={(event) => setSelectedDeviceId(event.target.value)}
-              >
-                {deviceOptions.map((device) => (
-                  <option key={device.id} value={device.id}>
-                    {device.currentOutsideFilter ? 'Current: ' : ''}
-                    {device.label}
-                    {threatsByBssid.has(device.id) ? ` [${severityLabel(threatsByBssid.get(device.id).severity)}]` : ''}
-                    {' '}({device.count.toLocaleString()})
-                  </option>
-                ))}
-              </select>
-              {deviceSearch && (
-                <p className="list-note">
-                  {filteredDevices.length > 0
-                    ? `Showing ${filteredDevices.length.toLocaleString()} of ${parsedCsv.devices.length.toLocaleString()} BSSIDs.${
-                        selectedDeviceOutsideFilter ? ' Current selection is kept at top.' : ''
-                      }`
-                    : 'No BSSIDs match the filter. The current map selection is unchanged.'}
-                </p>
-              )}
-              {selectedDevice && (
-                <p className="device-summary">
-                  {threatsByBssid.has(selectedDevice.id) && (
-                    <>
-                      <span className={`severity-badge inline ${threatsByBssid.get(selectedDevice.id).severity}`}>
-                        {severityLabel(threatsByBssid.get(selectedDevice.id).severity)}
-                      </span>{' '}
-                    </>
-                  )}
-                  {selectedDevice.count.toLocaleString()} sightings
-                  {selectedDevice.firstTimeMs !== null && (
-                    <> from {formatTime(selectedDevice.firstTimeMs)} to {formatTime(selectedDevice.lastTimeMs)}</>
-                  )}
-                </p>
-              )}
-            </section>
-
-            <section className="panel sightings-panel">
-              <div className="section-heading">
-                <h2>Scanner Sightings</h2>
-                <span>{deviceMapData.points.length.toLocaleString()}</span>
-              </div>
-              {deviceMapData.points.length > SIGHTING_LIST_LIMIT && (
-                <div className="segmented-control" role="group" aria-label="Sighting order">
-                  <button
-                    aria-pressed={sightingOrder === 'earliest'}
-                    className={sightingOrder === 'earliest' ? 'active' : ''}
-                    onClick={() => setSightingOrder('earliest')}
-                    type="button"
-                  >
-                    Earliest
-                  </button>
-                  <button
-                    aria-pressed={sightingOrder === 'latest'}
-                    className={sightingOrder === 'latest' ? 'active' : ''}
-                    onClick={() => setSightingOrder('latest')}
-                    type="button"
-                  >
-                    Latest
-                  </button>
-                </div>
-              )}
-              <div className="sighting-list">
-                {visiblePoints.map((point) => (
-                  <button
-                    className={selectedPoint?.__row_number === point.__row_number ? 'sighting active' : 'sighting'}
-                    key={point.__row_number}
-                    onClick={() => setSelectedPoint(point)}
-                    type="button"
-                  >
-                    <strong>#{point.__sequence}</strong>
-                    <span>{point.__event_time || 'Unknown time'}</span>
-                    <small>{scannerSightingMeta(point)}</small>
-                  </button>
-                ))}
-              </div>
-              {deviceMapData.points.length > visiblePoints.length && (
-                <p className="list-note">
-                  Showing {sightingOrder === 'latest' ? 'latest' : 'earliest'} {visiblePoints.length} sightings.
-                  Kepler shows all scanner points.
-                </p>
-              )}
-            </section>
-          </>
-        )}
       </aside>
 
       <section className="map-area">
         <div className="map-card" ref={mapRef}>
           <KeplerGl
             appName="Shadow View"
-            id="shadow-view-map"
+            id={KEPLER_MAP_ID}
             mapboxApiAccessToken={MAPBOX_TOKEN}
             mapStyles={CUSTOM_MAP_STYLES}
             mapStylesReplaceDefault
             version="MVP"
             width={mapSize.width}
             height={mapSize.height}
+          />
+          <MapScopeStatus
+            pointCount={deviceMapData.points.length}
+            selectedDevice={selectedDevice}
+            selectedMapThreat={selectedMapThreat}
+            selectedPoint={selectedPoint}
           />
           {!parsedCsv && (
             <div className="map-empty">

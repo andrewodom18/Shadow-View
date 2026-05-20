@@ -2,7 +2,7 @@ export const POINTS_DATASET_ID = 'shadow_view_points';
 export const TRAIL_DATASET_ID = 'shadow_view_trail';
 export const DEFAULT_MAP_STYLE_ID = 'shadow_view_street';
 
-export const SATELLITE_MAP_STYLE = {
+const SATELLITE_MAP_STYLE = {
   version: 8,
   name: 'Satellite Imagery',
   sources: {

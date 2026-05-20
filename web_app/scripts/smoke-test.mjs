@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
 
-import {parseShadowViewCsvText, prepareDeviceMapData} from '../src/csvShadowView.js';
+import {detectCleanerCsvFormat, parseShadowViewCsvText, prepareDeviceMapData} from '../src/csvShadowView.js';
 import {CUSTOM_MAP_STYLES, DEFAULT_MAP_STYLE_ID, POINTS_DATASET_ID, TRAIL_DATASET_ID, createKeplerPayload} from '../src/keplerConfig.js';
+import {
+  POINTS_LAYER_ID,
+  clickedPoint,
+  clickedPointIndex,
+  mapClickInfoForPoint,
+  pointIndexByRowNumber,
+  pointLayerIndex
+} from '../src/mapSelection.js';
 import {countBySeverity, deviceMatchesSearch, searchTerm, threatMatchesSearch} from '../src/searchFilters.js';
 import {DEFAULT_THREAT_CONFIG, normalizeThreatConfig} from '../src/threatConfig.js';
 import {analyzeThreats} from '../src/threatDetection.js';
@@ -18,12 +26,54 @@ assert.equal(parsed.devices.length, 2);
 assert.equal(parsed.devices[0].id, 'aa:bb:cc:00:00:01');
 assert.equal(parsed.devices[0].count, 2);
 
+const rogueTowerCleanerCsv = `Document ID,Display Name,Event Time,Location (Lat/Lon),Location (MGRS),Type,Accuracy,Device Name,Device Time,Eci,Mcc,Mnc,Pci,Rsrp,Rsrq,Serving Cell,Tac
+doc-1,unit,2026-04-30 15:33:53,"29.9525051,34.9349915",36RXU8673215097,lte,26,unit,2026-04-30T18:33:53+03:00,15175683,425,1,216,-88,-12,true,25321`;
+const rogueOnly = parseShadowViewCsvText(rogueTowerCleanerCsv, 'rogue-tower.csv');
+assert.equal(rogueOnly.cleanOnly, true);
+assert.equal(rogueOnly.cleanerFormat.cleanerId, 'rogue_tower');
+assert.equal(rogueOnly.cleanerFormat.displayName, 'Rogue Tower CSV Cleaner');
+assert.equal(rogueOnly.mappedRows, 0);
+assert.match(rogueOnly.mapError, /BSSID/);
+
+const coTravelerCleanerCsv = `BSSID,SSID,Accuracy,Event Time,Device Name,MGRS
+aa:bb:cc:00:00:01,NET_ONE,10,2026-05-19 12:00:00,Field Sensor,15SWC1234567890`;
+const coTravelerOnly = parseShadowViewCsvText(coTravelerCleanerCsv, 'co-traveler.csv');
+assert.equal(coTravelerOnly.cleanOnly, true);
+assert.equal(coTravelerOnly.cleanerFormat.cleanerId, 'co_traveler');
+assert.equal(coTravelerOnly.cleanerFormat.displayName, 'Co-Traveler CSV Cleaner');
+assert.equal(detectCleanerCsvFormat(['Device Name', 'Device Time', 'MCC', 'MNC', 'Serving Cell', 'Location (MGRS)', 'PCI', 'ECI', 'RSRP', 'RSRQ', 'TAC', 'Type', 'Accuracy']).cleanerId, 'rogue_tower');
+assert.throws(
+  () => parseShadowViewCsvText('Device Name,Accuracy\nscanner,10', 'unknown.csv'),
+  /Could not find a BSSID column/
+);
+
 const mapData = prepareDeviceMapData(parsed.observations, 'aa:bb:cc:00:00:01');
 assert.equal(mapData.points.length, 2);
 assert.equal(mapData.segments.length, 1);
 assert.equal(mapData.points[0].Bssid, 'aa:bb:cc:00:00:01');
 assert.equal(mapData.points[0]['Accuracy'], '26');
 assert.equal(mapData.points[0]['Accuracy (2)'], '');
+assert.equal(clickedPointIndex({picked: true, index: 1, layer: {props: {id: POINTS_LAYER_ID}}}), 1);
+assert.equal(clickedPointIndex({picked: true, object: {index: 0}, layer: {props: {id: POINTS_LAYER_ID}}}), 0);
+assert.equal(clickedPointIndex({picked: true, index: 0, layer: {props: {id: 'other-layer'}}}), null);
+assert.equal(clickedPoint({picked: true, index: 1, layer: {props: {id: POINTS_LAYER_ID}}}, mapData.points), mapData.points[1]);
+assert.equal(pointLayerIndex({visState: {layers: [{id: 'other-layer'}, {id: POINTS_LAYER_ID}]}}), 1);
+assert.equal(pointLayerIndex({visState: {layers: [{id: 'other-layer'}]}}), null);
+assert.equal(pointIndexByRowNumber(mapData.points).get(mapData.points[1].__row_number), 1);
+assert.deepEqual(mapClickInfoForPoint(mapData.points[1], 1, 2), {
+  picked: true,
+  index: 1,
+  object: {index: 1},
+  coordinate: [mapData.points[1].__longitude, mapData.points[1].__latitude],
+  layer: {
+    props: {
+      id: POINTS_LAYER_ID,
+      idx: 2,
+      dataId: POINTS_DATASET_ID
+    }
+  }
+});
+assert.equal(mapClickInfoForPoint(mapData.points[1], -1, 2), null);
 
 const payload = createKeplerPayload({...mapData, deviceId: 'aa:bb:cc:00:00:01'});
 assert.equal(payload.datasets[0].info.id, POINTS_DATASET_ID);
@@ -59,9 +109,24 @@ assert.equal(
 );
 assert.equal(DEFAULT_THREAT_CONFIG.maxDetectionRadiusMeters, 50);
 assert.equal(DEFAULT_THREAT_CONFIG.minScansLow, 8);
-assert.equal(DEFAULT_THREAT_CONFIG.minUniqueLocationsLow, DEFAULT_THREAT_CONFIG.minScansLow);
 assert.equal(DEFAULT_THREAT_CONFIG.minPathSpanMetersHigh, 1250);
 assert.equal(DEFAULT_THREAT_CONFIG.notifyAtSeverity, 'high');
+assert.deepEqual(Object.keys(DEFAULT_THREAT_CONFIG), [
+  'enabled',
+  'sameLocationMeters',
+  'maxDetectionRadiusMeters',
+  'minScansLow',
+  'minDurationMinutesLow',
+  'minPathSpanMetersLow',
+  'minScansMedium',
+  'minDurationMinutesMedium',
+  'minPathSpanMetersMedium',
+  'minScansHigh',
+  'minDurationMinutesHigh',
+  'minPathSpanMetersHigh',
+  'notifyAtSeverity',
+  'maxThreatsToShow'
+]);
 
 const threatCsv = `BSSID,SSID,Accuracy,Event Time,Device Name,MGRS,Latitude,Longitude
 aa:bb:cc:00:00:99,FOLLOWER,20,2026-04-30 12:00:00,scanner,36RXU1000010000,29.9500,34.9300
@@ -91,18 +156,17 @@ assert.equal(threats[0].metrics.qualifyingScanCount, 6);
 assert.equal(threats[0].metrics.ignoredScanCount, 1);
 assert.equal(threats[0].metrics.scannerLocationCount, 6);
 assert.equal(threats[0].metrics.medianDetectionRadiusMeters, 20);
+assert.equal(threats[0].qualifyingRowNumbers.length, 6);
+const allThreatDeviceMapData = prepareDeviceMapData(threatParsed.observations, threats[0].bssid);
+const qualifyingThreatMapData = prepareDeviceMapData(threatParsed.observations, threats[0].bssid, {
+  includedRowNumbers: threats[0].qualifyingRowNumbers
+});
+assert.equal(allThreatDeviceMapData.points.length, 7);
+assert.equal(qualifyingThreatMapData.points.length, 6);
+assert.ok(qualifyingThreatMapData.points.every((point) => Number(point.Accuracy) <= focusedThreatConfig.maxDetectionRadiusMeters));
 assert.match(threats[0].reason, /scanner location/);
 assert.match(threats[0].reason, /detection radius/);
 assert.match(threats[0].reason, /outside radius or MGRS criteria ignored/);
-const directLegacyThreats = analyzeThreats(threatParsed.observations, {
-  enabled: true,
-  sameLocationMeters: 50,
-  maxDetectionRadiusMeters: 100,
-  minUniqueLocationsHigh: 6,
-  minDurationMinutesHigh: 45,
-  minPathSpanMetersHigh: 250
-});
-assert.equal(directLegacyThreats[0].severity, 'high');
 assert.deepEqual(countBySeverity(threats), {all: 1, high: 1, medium: 0, low: 0});
 assert.equal(searchTerm('  FOLLOWER  '), 'follower');
 assert.equal(threatMatchesSearch(threats[0], 'follower'), true);
@@ -135,14 +199,9 @@ assert.equal(
   false
 );
 assert.equal(deviceMatchesSearch(null, null, 'missing'), false);
-assert.equal(normalizeThreatConfig({maxAccuracyMeters: 42}).maxDetectionRadiusMeters, 42);
 assert.equal(normalizeThreatConfig(null).maxDetectionRadiusMeters, DEFAULT_THREAT_CONFIG.maxDetectionRadiusMeters);
-const legacyLocationConfig = normalizeThreatConfig({minUniqueLocationsLow: 7});
-assert.equal(legacyLocationConfig.minScansLow, 7);
-assert.equal(legacyLocationConfig.minUniqueLocationsLow, 7);
-const scanConfig = normalizeThreatConfig({minScansLow: 9, minUniqueLocationsLow: 2});
-assert.equal(scanConfig.minScansLow, 9);
-assert.equal(scanConfig.minUniqueLocationsLow, 9);
+assert.deepEqual(Object.keys(normalizeThreatConfig()), Object.keys(DEFAULT_THREAT_CONFIG));
+assert.equal(normalizeThreatConfig({minScansLow: 9}).minScansLow, 9);
 
 const repeatedLocationCsv = `BSSID,SSID,Accuracy,Event Time,Device Name,MGRS,Latitude,Longitude
 aa:bb:cc:00:00:77,STATIONARY,20,2026-04-30 12:00:00,scanner,36RXU1000010000,29.9500,34.9300

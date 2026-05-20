@@ -15,8 +15,41 @@ const ACCURACY_ALIASES = [
   'range meters'
 ];
 const SSID_ALIASES = ['ssid', 'ssid (2)', 'network name'];
+const CLEANER_FORMATS = [
+  {
+    cleanerId: 'co_traveler',
+    displayName: 'Co-Traveler CSV Cleaner',
+    requiredAliases: [
+      ['BSSID'],
+      ['SSID'],
+      ['Accuracy'],
+      ['Event Time'],
+      ['Device Name'],
+      ['MGRS', 'Location (MGRS)']
+    ]
+  },
+  {
+    cleanerId: 'rogue_tower',
+    displayName: 'Rogue Tower CSV Cleaner',
+    requiredAliases: [
+      ['Device Name'],
+      ['Device Time'],
+      ['MCC'],
+      ['MNC'],
+      ['Serving Cell'],
+      ['MGRS', 'Location (MGRS)'],
+      ['PCI'],
+      ['ECI'],
+      ['RSRP'],
+      ['RSRQ'],
+      ['TAC'],
+      ['Type'],
+      ['Accuracy']
+    ]
+  }
+];
 
-export function normalizeHeader(value) {
+function normalizeHeader(value) {
   return String(value ?? '')
     .trim()
     .toLowerCase()
@@ -44,6 +77,32 @@ function uniqueHeaders(rawHeaders) {
 function findHeaders(headers, aliases) {
   const normalizedAliases = aliases.map(normalizeHeader);
   return headers.filter((header) => normalizedAliases.includes(header.normalized));
+}
+
+function normalizedHeaderSet(headers) {
+  return new Set(
+    headers
+      .map((header) => (typeof header === 'string' ? normalizeHeader(header) : normalizeHeader(header.raw)))
+      .filter(Boolean)
+  );
+}
+
+function hasHeaderAlias(normalizedHeaders, aliases) {
+  return aliases.some((alias) => normalizedHeaders.has(normalizeHeader(alias)));
+}
+
+export function detectCleanerCsvFormat(headers) {
+  const normalizedHeaders = normalizedHeaderSet(headers);
+  const matches = CLEANER_FORMATS.filter((format) =>
+    format.requiredAliases.every((aliases) => hasHeaderAlias(normalizedHeaders, aliases))
+  );
+
+  if (matches.length !== 1) {
+    return null;
+  }
+
+  const {cleanerId, displayName} = matches[0];
+  return {cleanerId, displayName};
 }
 
 function parseNumber(value) {
@@ -183,7 +242,7 @@ export function formatTime(ms) {
   return new Date(ms).toLocaleString();
 }
 
-export function analyzeDevices(observations) {
+function analyzeDevices(observations) {
   const devices = new Map();
 
   for (const observation of observations) {
@@ -212,9 +271,18 @@ export function analyzeDevices(observations) {
   });
 }
 
-export function prepareDeviceMapData(observations, deviceId) {
+export function prepareDeviceMapData(observations, deviceId, options = {}) {
+  const includedRowNumbers =
+    options.includedRowNumbers instanceof Set
+      ? options.includedRowNumbers
+      : Array.isArray(options.includedRowNumbers)
+        ? new Set(options.includedRowNumbers)
+        : null;
   const points = observations
-    .filter((observation) => observation.deviceId === deviceId)
+    .filter(
+      (observation) =>
+        observation.deviceId === deviceId && (!includedRowNumbers || includedRowNumbers.has(observation.rowNumber))
+    )
     .slice()
     .sort(compareByTime)
     .map((observation, index) => ({
@@ -262,6 +330,7 @@ function createParseState(onProgress) {
   return {
     headers: null,
     columns: null,
+    cleanerFormat: null,
     rowNumber: 0,
     mappedRows: 0,
     skippedRows: 0,
@@ -275,6 +344,7 @@ function ingestRows(rows, state) {
     if (!state.headers) {
       state.headers = uniqueHeaders(rawRow);
       state.columns = detectColumns(state.headers);
+      state.cleanerFormat = detectCleanerCsvFormat(state.headers);
       continue;
     }
 
@@ -313,18 +383,42 @@ function ingestRows(rows, state) {
   });
 }
 
-function finishParse(state, fileName) {
+function cleanOnlyResult(state, fileName, mapError) {
+  return {
+    fileName,
+    headers: state.headers,
+    columns: state.columns,
+    observations: [],
+    mappedRows: state.mappedRows,
+    skippedRows: state.skippedRows,
+    rowCount: state.rowNumber,
+    devices: [],
+    cleanOnly: true,
+    cleanerFormat: state.cleanerFormat,
+    mapError
+  };
+}
+
+function finishParse(state, fileName, options = {}) {
+  const {allowCleanerOnly = true} = options;
+  const failOrCleanOnly = (message) => {
+    if (allowCleanerOnly && state.cleanerFormat) {
+      return cleanOnlyResult(state, fileName, message);
+    }
+    throw new Error(message);
+  };
+
   if (!state.headers) {
     throw new Error('The selected CSV is empty.');
   }
   if (!state.columns?.deviceHeader) {
-    throw new Error('Could not find a BSSID column.');
+    return failOrCleanOnly('Could not find a BSSID column.');
   }
   if ((!state.columns?.latHeader || !state.columns?.lonHeader) && !state.columns?.latLonHeader) {
-    throw new Error('Could not find Latitude/Longitude or Location (Lat/Lon) columns.');
+    return failOrCleanOnly('Could not find Latitude/Longitude or Location (Lat/Lon) columns.');
   }
   if (!state.observations.length) {
-    throw new Error('No mappable rows were found. Check that device IDs and coordinates are populated.');
+    return failOrCleanOnly('No mappable rows were found. Check that device IDs and coordinates are populated.');
   }
 
   return {
@@ -334,11 +428,14 @@ function finishParse(state, fileName) {
     observations: state.observations,
     mappedRows: state.mappedRows,
     skippedRows: state.skippedRows,
-    devices: analyzeDevices(state.observations)
+    rowCount: state.rowNumber,
+    devices: analyzeDevices(state.observations),
+    cleanOnly: false,
+    cleanerFormat: state.cleanerFormat
   };
 }
 
-export function parseShadowViewCsvText(csvText, fileName = 'uploaded.csv', onProgress = () => {}) {
+export function parseShadowViewCsvText(csvText, fileName = 'uploaded.csv', onProgress = () => {}, options = {}) {
   const state = createParseState(onProgress);
   const result = Papa.parse(csvText, {
     skipEmptyLines: true
@@ -349,10 +446,10 @@ export function parseShadowViewCsvText(csvText, fileName = 'uploaded.csv', onPro
   }
 
   ingestRows(result.data, state);
-  return finishParse(state, fileName);
+  return finishParse(state, fileName, options);
 }
 
-export function parseShadowViewCsv(file, onProgress = () => {}) {
+export function parseShadowViewCsv(file, onProgress = () => {}, options = {}) {
   return new Promise((resolve, reject) => {
     const state = createParseState(onProgress);
     let failed = false;
@@ -376,7 +473,7 @@ export function parseShadowViewCsv(file, onProgress = () => {}) {
         }
 
         try {
-          resolve(finishParse(state, file.name));
+          resolve(finishParse(state, file.name, options));
         } catch (error) {
           reject(error);
         }

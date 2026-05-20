@@ -1,0 +1,8 @@
+{
+  "ignoreDependencies": [
+    "assert",
+    "events",
+    "react-palm",
+    "react-virtualized"
+  ]
+}

@@ -30,11 +30,11 @@ const UTM_K0 = 0.9996;
 const EARTH_RADIUS_METERS = 6371008.8;
 const SEVERITY_RANK = {none: 0, low: 1, medium: 2, high: 3};
 
-export function severityRank(severity) {
+function severityRank(severity) {
   return SEVERITY_RANK[severity] ?? 0;
 }
 
-export function parseMgrs(value) {
+function parseMgrs(value) {
   const cleaned = String(value ?? '')
     .trim()
     .toUpperCase()
@@ -87,7 +87,7 @@ export function parseMgrs(value) {
   };
 }
 
-export function mgrsDistanceMeters(first, second) {
+function mgrsDistanceMeters(first, second) {
   if (first.zone === second.zone && first.hemisphere === second.hemisphere) {
     return Math.hypot(first.easting - second.easting, first.northing - second.northing);
   }
@@ -235,24 +235,19 @@ function distinctValues(values) {
   );
 }
 
-function minUniqueScanThreshold(config, level) {
-  const suffix = `${level[0].toUpperCase()}${level.slice(1)}`;
-  return config[`minScans${suffix}`] ?? config[`minUniqueLocations${suffix}`] ?? Infinity;
-}
-
 function evaluateSeverity(metrics, config) {
   const scannerPathSpanMeters = metrics.scannerPathSpanMeters ?? metrics.pathSpanMeters;
   const checks = {
     high:
-      metrics.scanCount >= minUniqueScanThreshold(config, 'high') &&
+      metrics.scanCount >= config.minScansHigh &&
       metrics.durationMinutes >= config.minDurationMinutesHigh &&
       scannerPathSpanMeters >= config.minPathSpanMetersHigh,
     medium:
-      metrics.scanCount >= minUniqueScanThreshold(config, 'medium') &&
+      metrics.scanCount >= config.minScansMedium &&
       metrics.durationMinutes >= config.minDurationMinutesMedium &&
       scannerPathSpanMeters >= config.minPathSpanMetersMedium,
     low:
-      metrics.scanCount >= minUniqueScanThreshold(config, 'low') &&
+      metrics.scanCount >= config.minScansLow &&
       metrics.durationMinutes >= config.minDurationMinutesLow &&
       scannerPathSpanMeters >= config.minPathSpanMetersLow
   };
@@ -350,7 +345,7 @@ export function analyzeThreats(observations, config) {
           point !== null &&
           Number.isFinite(detectionRadius) &&
           detectionRadius >= 0 &&
-          detectionRadius <= (config.maxDetectionRadiusMeters ?? config.maxAccuracyMeters)
+          detectionRadius <= config.maxDetectionRadiusMeters
       );
 
     if (!qualifiedRows.length) {
@@ -393,7 +388,8 @@ export function analyzeThreats(observations, config) {
       severity,
       rank: severityRank(severity),
       reason: buildReason(metrics),
-      metrics
+      metrics,
+      qualifyingRowNumbers: qualifiedRows.map(({row}) => row.rowNumber)
     });
   }
 

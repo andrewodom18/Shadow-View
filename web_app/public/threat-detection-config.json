@@ -2,7 +2,6 @@
   "enabled": true,
   "sameLocationMeters": 50,
   "maxDetectionRadiusMeters": 50,
-  "maxAccuracyMeters": 50,
   "minScansLow": 8,
   "minDurationMinutesLow": 30,
   "minPathSpanMetersLow": 250,
