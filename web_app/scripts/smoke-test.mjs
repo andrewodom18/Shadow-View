@@ -59,8 +59,11 @@ const groupedMapData = prepareDeviceMapData(parsed.observations, 'aa:bb:cc:00:00
 });
 assert.equal(groupedMapData.points.length, 1);
 assert.equal(groupedMapData.rawPointCount, 2);
+assert.equal(groupedMapData.points[0]['Map radius (m)'], 25);
 assert.equal(groupedMapData.points[0]['Grouped scans'], 2);
+assert.equal(groupedMapData.points[0]['Location observed span'], '1m');
 assert.equal(groupedMapData.points[0].__cluster_size, 2);
+assert.equal(groupedMapData.points[0].__cluster_duration_ms, 60000);
 assert.equal(groupedMapData.clusterDistanceMeters, 200);
 assert.equal(clickedPointIndex({picked: true, index: 1, layer: {props: {id: POINTS_LAYER_ID}}}), 1);
 assert.equal(clickedPointIndex({picked: true, object: {index: 0}, layer: {props: {id: POINTS_LAYER_ID}}}), 0);
@@ -181,7 +184,7 @@ const groupedQualifyingThreatMapData = prepareDeviceMapData(threatParsed.observa
 assert.equal(allThreatDeviceMapData.points.length, 7);
 assert.equal(qualifyingThreatMapData.points.length, 6);
 assert.equal(groupedQualifyingThreatMapData.rawPointCount, qualifyingThreatMapData.points.length);
-assert.ok(groupedQualifyingThreatMapData.points.length < qualifyingThreatMapData.points.length);
+assert.equal(groupedQualifyingThreatMapData.points.length, threats[0].metrics.scannerLocationCount);
 assert.ok(qualifyingThreatMapData.points.every((point) => Number(point.Accuracy) <= focusedThreatConfig.maxDetectionRadiusMeters));
 assert.match(threats[0].reason, /scanner location/);
 assert.match(threats[0].reason, /detection radius/);
@@ -247,6 +250,18 @@ const oneUniqueScanThreats = analyzeThreats(
 assert.equal(oneUniqueScanThreats.length, 1);
 assert.equal(oneUniqueScanThreats[0].metrics.scanCount, 1);
 assert.equal(oneUniqueScanThreats[0].metrics.qualifyingScanCount, 6);
+const groupedRepeatedLocationMapData = prepareDeviceMapData(
+  repeatedLocationParsed.observations,
+  oneUniqueScanThreats[0].bssid,
+  {
+    includedRowNumbers: oneUniqueScanThreats[0].qualifyingRowNumbers,
+    clusterDistanceMeters: repeatedLocationConfig.sameLocationMeters
+  }
+);
+assert.equal(groupedRepeatedLocationMapData.points.length, 1);
+assert.equal(groupedRepeatedLocationMapData.rawPointCount, 6);
+assert.equal(groupedRepeatedLocationMapData.points[0]['Grouped scans'], 6);
+assert.equal(groupedRepeatedLocationMapData.points[0]['Location observed span'], '50m');
 
 const chainCsv = `BSSID,SSID,Accuracy,Event Time,Device Name,MGRS,Latitude,Longitude
 aa:bb:cc:00:00:88,CHAIN,20,2026-04-30 12:00:00,scanner,36RXU1000010000,29.9500,34.9300

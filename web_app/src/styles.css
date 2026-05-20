@@ -31,6 +31,15 @@ body {
   color: var(--text);
 }
 
+body.details-resizing {
+  cursor: ns-resize;
+  user-select: none;
+}
+
+body.details-resizing * {
+  cursor: ns-resize !important;
+}
+
 #root {
   min-height: 100vh;
 }
@@ -1000,13 +1009,9 @@ select {
 
 .map-area {
   display: grid;
-  grid-template-rows: minmax(340px, 1fr) minmax(180px, 30vh);
+  grid-template-rows: minmax(300px, 1fr) minmax(140px, var(--details-panel-height, 280px));
   gap: 18px;
   min-height: 0;
-}
-
-.map-area.details-collapsed {
-  grid-template-rows: minmax(340px, 1fr) auto;
 }
 
 .map-card {
@@ -1204,17 +1209,47 @@ select {
 }
 
 .details-card {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
   min-height: 0;
   overflow: hidden;
   box-shadow: none;
 }
 
-.details-card.collapsed {
-  padding-block: 10px;
+.details-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 14px;
+  border: 0;
+  background: transparent;
+  cursor: ns-resize;
+  padding: 0;
+  touch-action: none;
 }
 
-.details-card.collapsed .section-heading {
-  margin-bottom: 0;
+.details-resize-handle::before {
+  content: "";
+  position: absolute;
+  top: 5px;
+  left: 50%;
+  width: 56px;
+  height: 4px;
+  border-radius: 999px;
+  background: #c8d2df;
+  transform: translateX(-50%);
+}
+
+.details-resize-handle:hover::before,
+.details-resize-handle:focus-visible::before {
+  background: var(--accent);
+}
+
+.details-resize-handle:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  outline-offset: -3px;
 }
 
 .details-heading-title {
@@ -1229,19 +1264,6 @@ select {
   min-width: 0;
 }
 
-.details-toggle {
-  flex: 0 0 auto;
-  padding: 7px 10px;
-}
-
-.details-toggle-icon {
-  transition: transform 160ms ease;
-}
-
-.details-toggle-icon.collapsed {
-  transform: rotate(180deg);
-}
-
 .details-hint {
   margin-bottom: 12px;
 }
@@ -1250,7 +1272,7 @@ select {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
-  max-height: calc(30vh - 82px);
+  min-height: 0;
   overflow: auto;
 }
 
@@ -1288,11 +1310,7 @@ select {
   }
 
   .map-area {
-    grid-template-rows: 520px minmax(220px, auto);
-  }
-
-  .map-area.details-collapsed {
-    grid-template-rows: minmax(520px, 70vh) auto;
+    grid-template-rows: 520px minmax(140px, var(--details-panel-height, 280px));
   }
 
   .map-card {
@@ -1300,7 +1318,7 @@ select {
   }
 
   .detail-table {
-    max-height: 420px;
+    max-height: none;
   }
 }
 

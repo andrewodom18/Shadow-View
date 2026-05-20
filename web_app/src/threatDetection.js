@@ -34,7 +34,7 @@ function severityRank(severity) {
   return SEVERITY_RANK[severity] ?? 0;
 }
 
-function parseMgrs(value) {
+export function parseMgrs(value) {
   const cleaned = String(value ?? '')
     .trim()
     .toUpperCase()
@@ -87,7 +87,7 @@ function parseMgrs(value) {
   };
 }
 
-function mgrsDistanceMeters(first, second) {
+export function mgrsDistanceMeters(first, second) {
   if (first.zone === second.zone && first.hemisphere === second.hemisphere) {
     return Math.hypot(first.easting - second.easting, first.northing - second.northing);
   }
@@ -332,7 +332,7 @@ export function analyzeThreats(observations, config) {
     const qualifiedRows = rows
       .map((row) => ({
         row,
-        point: parseMgrs(row.mgrs),
+        point: row.mgrsPoint ?? parseMgrs(row.mgrs),
         detectionRadius:
           row.detectionRadius === null || row.detectionRadius === undefined
             ? row.accuracy === null || row.accuracy === undefined

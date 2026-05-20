@@ -1,5 +1,7 @@
 import Papa from 'papaparse';
 
+import {mgrsDistanceMeters, parseMgrs} from './threatDetection.js';
+
 const DEVICE_ALIASES = ['bssid', 'bssid_1', 'bssid (2)', 'device bssid'];
 const TIME_ALIASES = ['event time', 'device time', 'last updated'];
 const LAT_ALIASES = ['latitude', 'lat'];
@@ -245,6 +247,41 @@ function distanceMeters(first, second) {
   return 6371008.8 * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
 }
 
+function observationMgrsPoint(observation) {
+  return Object.hasOwn(observation, 'mgrsPoint') ? observation.mgrsPoint : parseMgrs(observation.mgrs);
+}
+
+function observationDistanceMeters(first, second) {
+  const firstMgrsPoint = observationMgrsPoint(first);
+  const secondMgrsPoint = observationMgrsPoint(second);
+  if (firstMgrsPoint && secondMgrsPoint) {
+    return mgrsDistanceMeters(firstMgrsPoint, secondMgrsPoint);
+  }
+  return distanceMeters(first, second);
+}
+
+function compareByLocation(first, second) {
+  const firstMgrsPoint = observationMgrsPoint(first);
+  const secondMgrsPoint = observationMgrsPoint(second);
+  if (firstMgrsPoint && secondMgrsPoint) {
+    return (
+      firstMgrsPoint.zone - secondMgrsPoint.zone ||
+      firstMgrsPoint.hemisphere.localeCompare(secondMgrsPoint.hemisphere) ||
+      firstMgrsPoint.easting - secondMgrsPoint.easting ||
+      firstMgrsPoint.northing - secondMgrsPoint.northing ||
+      firstMgrsPoint.raw.localeCompare(secondMgrsPoint.raw) ||
+      compareByTime(first, second)
+    );
+  }
+  if (firstMgrsPoint) {
+    return -1;
+  }
+  if (secondMgrsPoint) {
+    return 1;
+  }
+  return first.latitude - second.latitude || first.longitude - second.longitude || compareByTime(first, second);
+}
+
 function medianNumber(values) {
   const sorted = values.filter(Number.isFinite).slice().sort((first, second) => first - second);
   if (!sorted.length) {
@@ -287,9 +324,9 @@ function groupedObservations(observations, distanceThresholdMeters) {
   }
 
   const groups = [];
-  for (const observation of observations) {
+  for (const observation of observations.slice().sort(compareByLocation)) {
     const existingGroup = groups.find(
-      (group) => distanceMeters(observation, group.anchor) <= distanceThresholdMeters
+      (group) => observationDistanceMeters(observation, group.anchor) <= distanceThresholdMeters
     );
     if (existingGroup) {
       existingGroup.observations.push(observation);
@@ -302,7 +339,9 @@ function groupedObservations(observations, distanceThresholdMeters) {
     });
   }
 
-  return groups.map((group) => group.observations);
+  return groups
+    .map((group) => group.observations.slice().sort(compareByTime))
+    .sort((firstGroup, secondGroup) => compareByTime(firstGroup[0], secondGroup[0]));
 }
 
 function observationGroupPoint(group, index) {
@@ -312,16 +351,16 @@ function observationGroupPoint(group, index) {
   const timedObservations = orderedGroup.filter((observation) => Number.isFinite(observation.timeMs));
   const firstTimedObservation = timedObservations[0] ?? null;
   const lastTimedObservation = timedObservations[timedObservations.length - 1] ?? null;
-  const durationMs =
+  const observedSpanMs =
     firstTimedObservation && lastTimedObservation ? lastTimedObservation.timeMs - firstTimedObservation.timeMs : null;
-  const locationDuration = durationLabel(durationMs);
+  const locationObservedSpan = durationLabel(observedSpanMs);
   const detectionRadii = orderedGroup
     .map((observation) => Number(observation.detectionRadius ?? observation.accuracy))
     .filter(Number.isFinite);
   const detectionRadiusMeters = medianNumber(detectionRadii) ?? representative.detectionRadius;
   const groupRadiusMeters = Math.max(
     0,
-    ...orderedGroup.map((observation) => distanceMeters(representative, observation)).filter(Number.isFinite)
+    ...orderedGroup.map((observation) => observationDistanceMeters(representative, observation)).filter(Number.isFinite)
   );
 
   return {
@@ -332,11 +371,11 @@ function observationGroupPoint(group, index) {
           'Grouped scans': orderedGroup.length,
           'Grouped rows': `${Math.min(...rows)}-${Math.max(...rows)}`,
           'Location group radius (m)': Math.round(groupRadiusMeters),
-          ...(locationDuration
+          ...(locationObservedSpan
             ? {
                 'Location first seen': firstTimedObservation.timeRaw,
                 'Location last seen': lastTimedObservation.timeRaw,
-                'Location duration': locationDuration
+                'Location observed span': locationObservedSpan
               }
             : {})
         }
@@ -356,8 +395,8 @@ function observationGroupPoint(group, index) {
     __cluster_radius_meters: Math.round(groupRadiusMeters),
     __cluster_start_time: firstTimedObservation?.timeRaw ?? '',
     __cluster_end_time: lastTimedObservation?.timeRaw ?? '',
-    __cluster_duration_ms: Number.isFinite(durationMs) ? durationMs : null,
-    __cluster_duration_label: locationDuration
+    __cluster_duration_ms: Number.isFinite(observedSpanMs) ? observedSpanMs : null,
+    __cluster_duration_label: locationObservedSpan
   };
 }
 
@@ -482,6 +521,7 @@ function ingestRows(rows, state) {
 
     const timeRaw = String(valueFromHeaders(row, state.columns.timeHeaders)).trim();
     const timeMs = parseTime(timeRaw);
+    const mgrs = String(valueFromHeaders(row, state.columns.mgrsHeaders)).trim();
     state.observations.push({
       rowNumber: state.rowNumber,
       deviceId: deviceValue,
@@ -489,7 +529,8 @@ function ingestRows(rows, state) {
       longitude: coordinates.longitude,
       timeRaw,
       timeMs,
-      mgrs: String(valueFromHeaders(row, state.columns.mgrsHeaders)).trim(),
+      mgrs,
+      mgrsPoint: parseMgrs(mgrs),
       accuracy: parseNumber(valueFromHeaders(row, state.columns.accuracyHeaders)),
       detectionRadius: parseNumber(valueFromHeaders(row, state.columns.accuracyHeaders)),
       ssid: String(valueFromHeaders(row, state.columns.ssidHeaders)).trim(),

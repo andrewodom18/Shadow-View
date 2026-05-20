@@ -36,6 +36,11 @@ const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN || 'shadow-view-local';
 const SIGHTING_LIST_LIMIT = 150;
 const SELECTED_POINT_MIN_ZOOM = 17;
 const WEB_MERCATOR_TILE_SIZE = 512;
+const DETAILS_PANEL_DEFAULT_HEIGHT = 280;
+const DETAILS_PANEL_MIN_HEIGHT = 140;
+const DETAILS_PANEL_MAX_HEIGHT = 620;
+const DETAILS_PANEL_MIN_MAP_HEIGHT = 300;
+const DETAILS_PANEL_KEYBOARD_STEP = 24;
 const CSV_SESSION_STORAGE_KEY = 'shadow-view-current-csv-id-v1';
 const CSV_SESSION_DB_NAME = 'shadow-view-csv-session';
 const CSV_SESSION_DB_VERSION = 1;
@@ -279,7 +284,7 @@ function OutputToggle({checked, disabled, icon: Icon, label, onChange}) {
   );
 }
 
-function SidebarDropdown({ariaLive, children, className = '', count, defaultOpen = true, icon: Icon, meta, title}) {
+function SidebarDropdown({ariaLive, children, className = '', count, defaultOpen = false, icon: Icon, meta, title}) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
   return (
@@ -334,8 +339,8 @@ function scannerSightingMeta(point) {
   const location = `${point.__latitude.toFixed(6)}, ${point.__longitude.toFixed(6)}`;
   const radius = formatDetectionRadius(point.__detection_radius_meters);
   const grouped = point.__cluster_size > 1 ? `${point.__cluster_size.toLocaleString()} scans` : '';
-  const duration = point.__cluster_duration_label ? `${point.__cluster_duration_label} here` : '';
-  return [location, radius, grouped, duration].filter(Boolean).join(' - ');
+  const observedSpan = point.__cluster_duration_label ? `${point.__cluster_duration_label} span` : '';
+  return [location, radius, grouped, observedSpan].filter(Boolean).join(' - ');
 }
 
 function visibleSightingPoints(points, order) {
@@ -554,6 +559,7 @@ function ThreatPanel({
       ariaLive="polite"
       className="review-panel"
       count={totalDeviceCount.toLocaleString()}
+      defaultOpen
       icon={Search}
       title="BSSID Review"
     >
@@ -787,10 +793,11 @@ export default function App() {
   const [threatSeverityFilter, setThreatSeverityFilter] = useState('all');
   const [reviewSearch, setReviewSearch] = useState('');
   const [sightingOrder, setSightingOrder] = useState('oldest');
-  const [detailsCollapsed, setDetailsCollapsed] = useState(false);
+  const [detailsPanelHeight, setDetailsPanelHeight] = useState(DETAILS_PANEL_DEFAULT_HEIGHT);
   const fileInputRef = useRef(null);
   const loadRequestRef = useRef(0);
   const sightingButtonRefs = useRef(new Map());
+  const mapAreaRef = useRef(null);
 
   const selectedDevice = useMemo(
     () => parsedCsv?.devices.find((device) => device.id === selectedDeviceId) ?? null,
@@ -1295,7 +1302,6 @@ export default function App() {
   const selectSightingPoint = useCallback(
     (point, options = {}) => {
       setSelectedPoint(point);
-      setDetailsCollapsed(false);
       if (options.focusMap) {
         focusPointOnMap(point);
       }
@@ -1313,9 +1319,97 @@ export default function App() {
       return;
     }
 
-    setDetailsCollapsed(false);
     setSelectedPoint((current) => (current?.__row_number === point.__row_number ? current : point));
   }, [clickedMapObject, deviceMapData.points]);
+
+  const clampDetailsPanelHeight = useCallback((height) => {
+    const container = mapAreaRef.current;
+    let maxHeight = DETAILS_PANEL_MAX_HEIGHT;
+
+    if (container) {
+      const styles = window.getComputedStyle(container);
+      const rowGap = Number.parseFloat(styles.rowGap) || 0;
+      const availableHeight = container.getBoundingClientRect().height - DETAILS_PANEL_MIN_MAP_HEIGHT - rowGap;
+      maxHeight = Math.min(maxHeight, Math.max(DETAILS_PANEL_MIN_HEIGHT, availableHeight));
+    }
+
+    return Math.round(Math.min(Math.max(height, DETAILS_PANEL_MIN_HEIGHT), maxHeight));
+  }, []);
+
+  const handleDetailsResizePointerDown = useCallback(
+    (event) => {
+      if (event.button !== 0) {
+        return;
+      }
+
+      event.preventDefault();
+      document.body.classList.add('details-resizing');
+
+      const updateHeight = (clientY) => {
+        const container = mapAreaRef.current;
+        if (!container) {
+          return;
+        }
+
+        const containerRect = container.getBoundingClientRect();
+        setDetailsPanelHeight(clampDetailsPanelHeight(containerRect.bottom - clientY));
+      };
+
+      const handlePointerMove = (moveEvent) => {
+        moveEvent.preventDefault();
+        updateHeight(moveEvent.clientY);
+      };
+
+      const stopResizing = () => {
+        document.body.classList.remove('details-resizing');
+        window.removeEventListener('pointermove', handlePointerMove);
+        window.removeEventListener('pointerup', stopResizing);
+        window.removeEventListener('pointercancel', stopResizing);
+      };
+
+      updateHeight(event.clientY);
+      window.addEventListener('pointermove', handlePointerMove);
+      window.addEventListener('pointerup', stopResizing);
+      window.addEventListener('pointercancel', stopResizing);
+    },
+    [clampDetailsPanelHeight]
+  );
+
+  const handleDetailsResizeKeyDown = useCallback(
+    (event) => {
+      let delta = 0;
+      let fixedHeight = null;
+
+      if (event.key === 'ArrowUp') {
+        delta = DETAILS_PANEL_KEYBOARD_STEP;
+      } else if (event.key === 'ArrowDown') {
+        delta = -DETAILS_PANEL_KEYBOARD_STEP;
+      } else if (event.key === 'PageUp') {
+        delta = DETAILS_PANEL_KEYBOARD_STEP * 3;
+      } else if (event.key === 'PageDown') {
+        delta = DETAILS_PANEL_KEYBOARD_STEP * -3;
+      } else if (event.key === 'Home') {
+        fixedHeight = DETAILS_PANEL_MIN_HEIGHT;
+      } else if (event.key === 'End') {
+        fixedHeight = DETAILS_PANEL_MAX_HEIGHT;
+      } else {
+        return;
+      }
+
+      event.preventDefault();
+      setDetailsPanelHeight((height) => clampDetailsPanelHeight(fixedHeight ?? height + delta));
+    },
+    [clampDetailsPanelHeight]
+  );
+
+  useEffect(() => {
+    const handleResize = () => {
+      setDetailsPanelHeight((height) => clampDetailsPanelHeight(height));
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [clampDetailsPanelHeight]);
 
   useEffect(() => {
     if (!selectedPoint) {
@@ -1346,6 +1440,7 @@ export default function App() {
 
         <SidebarDropdown
           className={selectedFile ? 'upload-panel loaded' : 'upload-panel'}
+          defaultOpen
           icon={FileText}
           title="CSV Upload"
         >
@@ -1536,6 +1631,7 @@ export default function App() {
 
         <SidebarDropdown
           className="cleaner-panel"
+          defaultOpen
           icon={Download}
           meta={
             <span className={cleanerApi.available ? 'api-state ready' : 'api-state offline'}>
@@ -1609,7 +1705,11 @@ export default function App() {
         </SidebarDropdown>
       </aside>
 
-      <section className={`map-area ${detailsCollapsed ? 'details-collapsed' : ''}`.trim()}>
+      <section
+        className="map-area"
+        ref={mapAreaRef}
+        style={{'--details-panel-height': `${detailsPanelHeight}px`}}
+      >
         <div className="map-card" ref={mapRef}>
           <KeplerGl
             appName="Shadow View"
@@ -1653,33 +1753,28 @@ export default function App() {
           )}
         </div>
 
-        <div className={`details-card ${detailsCollapsed ? 'collapsed' : ''}`.trim()}>
+        <div className="details-card">
+          <div
+            aria-label="Resize location details"
+            aria-orientation="horizontal"
+            aria-valuemax={DETAILS_PANEL_MAX_HEIGHT}
+            aria-valuemin={DETAILS_PANEL_MIN_HEIGHT}
+            aria-valuenow={detailsPanelHeight}
+            className="details-resize-handle"
+            onKeyDown={handleDetailsResizeKeyDown}
+            onPointerDown={handleDetailsResizePointerDown}
+            role="separator"
+            tabIndex={0}
+            title="Resize location details"
+          />
           <div className="section-heading">
             <div className="details-heading-title">
               <h2>Location Details</h2>
               <span>{selectedPoint ? `Row ${selectedPoint.__row_number}` : 'No selection'}</span>
             </div>
-            <button
-              aria-expanded={!detailsCollapsed}
-              className="tertiary-button details-toggle"
-              onClick={() => setDetailsCollapsed((collapsed) => !collapsed)}
-              title={detailsCollapsed ? 'Show details' : 'Hide details'}
-              type="button"
-            >
-              <ChevronDown
-                aria-hidden="true"
-                className={detailsCollapsed ? 'details-toggle-icon collapsed' : 'details-toggle-icon'}
-                size={16}
-              />
-              <span>{detailsCollapsed ? 'Show' : 'Hide'}</span>
-            </button>
           </div>
-          {!detailsCollapsed && (
-            <>
-              <p className="details-hint">Selected map item values from the original CSV.</p>
-              <DetailTable row={selectedPoint} />
-            </>
-          )}
+          <p className="details-hint">Selected map item values from the original CSV.</p>
+          <DetailTable row={selectedPoint} />
         </div>
       </section>
     </main>
