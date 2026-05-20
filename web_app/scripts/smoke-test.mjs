@@ -110,7 +110,6 @@ assert.equal(
 assert.equal(DEFAULT_THREAT_CONFIG.maxDetectionRadiusMeters, 50);
 assert.equal(DEFAULT_THREAT_CONFIG.minScansLow, 8);
 assert.equal(DEFAULT_THREAT_CONFIG.minPathSpanMetersHigh, 1250);
-assert.equal(DEFAULT_THREAT_CONFIG.notifyAtSeverity, 'high');
 assert.deepEqual(Object.keys(DEFAULT_THREAT_CONFIG), [
   'enabled',
   'sameLocationMeters',
@@ -124,7 +123,6 @@ assert.deepEqual(Object.keys(DEFAULT_THREAT_CONFIG), [
   'minScansHigh',
   'minDurationMinutesHigh',
   'minPathSpanMetersHigh',
-  'notifyAtSeverity',
   'maxThreatsToShow'
 ]);
 
@@ -180,7 +178,7 @@ assert.equal(
     threats[0],
     'high'
   ),
-  true
+  false
 );
 assert.equal(
   deviceMatchesSearch(

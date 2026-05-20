@@ -2,6 +2,7 @@ import {KeplerGl} from '@kepler.gl/components';
 import {addDataToMap, onLayerClick, removeDataset} from '@kepler.gl/actions';
 import {
   AlertTriangle,
+  ChevronDown,
   CheckCircle2,
   Download,
   FileArchive,
@@ -351,6 +352,7 @@ function ThreatSettings({config, disabled, onChange, onReset}) {
       <summary>
         <SlidersHorizontal aria-hidden="true" size={15} />
         <span>Threat Criteria</span>
+        <ChevronDown aria-hidden="true" className="threat-settings-caret" size={18} />
       </summary>
       <div className="settings-grid criteria-basics">
         <label
@@ -452,15 +454,6 @@ function ThreatPanel({
         <h2>BSSID Review</h2>
         <span>{totalDeviceCount.toLocaleString()}</span>
       </div>
-      <label className="search-field">
-        <span>Search BSSIDs and threats</span>
-        <input
-          onChange={(event) => onSearchChange(event.target.value)}
-          placeholder="BSSID, SSID, or severity"
-          type="search"
-          value={searchValue}
-        />
-      </label>
       <div className="severity-filter" role="group" aria-label="Threat severity filter">
         {['all', 'high', 'medium', 'low'].map((severity) => {
           const label = severity === 'all' ? 'All BSSIDs' : severityLabel(severity);
@@ -479,9 +472,18 @@ function ThreatPanel({
           );
         })}
       </div>
+      <label className="search-field">
+        <span>Search BSSIDs</span>
+        <input
+          onChange={(event) => onSearchChange(event.target.value)}
+          placeholder="BSSID or SSID"
+          type="search"
+          value={searchValue}
+        />
+      </label>
       <div className="device-picker">
-        <label className="field-label" htmlFor="device-select">Mapped BSSID</label>
         <select
+          aria-label="Mapped BSSID"
           id="device-select"
           value={selectedDeviceId}
           onChange={(event) => onDeviceChange(event.target.value)}
@@ -610,6 +612,7 @@ export default function App() {
   const [selectedPoint, setSelectedPoint] = useState(null);
   const [status, setStatus] = useState('Choose a CSV to map detections.');
   const [parseProgress, setParseProgress] = useState(null);
+  const [csvReadSummary, setCsvReadSummary] = useState(null);
   const [isParsing, setIsParsing] = useState(false);
   const [error, setError] = useState('');
   const [detectedCleanerFormat, setDetectedCleanerFormat] = useState(null);
@@ -623,6 +626,7 @@ export default function App() {
   const [threatSeverityFilter, setThreatSeverityFilter] = useState('all');
   const [reviewSearch, setReviewSearch] = useState('');
   const [sightingOrder, setSightingOrder] = useState('oldest');
+  const [detailsCollapsed, setDetailsCollapsed] = useState(false);
   const fileInputRef = useRef(null);
   const loadRequestRef = useRef(0);
 
@@ -630,9 +634,14 @@ export default function App() {
     () => parsedCsv?.devices.find((device) => device.id === selectedDeviceId) ?? null,
     [parsedCsv, selectedDeviceId]
   );
-  const csvProgressText = parseProgress
-    ? `${parseProgress.rowNumber.toLocaleString()} rows scanned, ${parseProgress.mappedRows.toLocaleString()} mapped`
+  const csvProgress = isParsing ? parseProgress : csvReadSummary;
+  const csvProgressText = csvProgress
+    ? `${csvProgress.rowNumber.toLocaleString()} rows scanned, ${csvProgress.mappedRows.toLocaleString()} mapped`
     : '';
+  const elapsedText =
+    !isParsing && csvReadSummary?.elapsedMs !== null && csvReadSummary?.elapsedMs !== undefined
+      ? `Time taken: ${(csvReadSummary.elapsedMs / 1000).toFixed(2)} seconds`
+      : '';
   const showStatusCard = isParsing || Boolean(error);
   const hasCleanOutput = cleanOutputs.csv || cleanOutputs.xlsx || cleanOutputs.html;
   const threats = useMemo(
@@ -690,7 +699,12 @@ export default function App() {
     return [{...withThreatSeverity(selectedDevice), currentOutsideFilter: true}, ...filteredDevices.map(withThreatSeverity)];
   }, [filteredDevices, selectedDevice, selectedDeviceOutsideFilter, threatsByBssid]);
 
-  const loadParsedCsv = useCallback((result) => {
+  const loadParsedCsv = useCallback((result, elapsedMs = null) => {
+    setCsvReadSummary({
+      rowNumber: result.rowCount ?? (result.mappedRows ?? 0) + (result.skippedRows ?? 0),
+      mappedRows: result.mappedRows ?? 0,
+      elapsedMs
+    });
     setDetectedCleanerFormat(result.cleanerFormat ?? null);
     if (result.cleanOnly) {
       setParsedCsv(null);
@@ -715,6 +729,7 @@ export default function App() {
     setError('');
     setCleanError('');
     setDownloadInfo(null);
+    setCsvReadSummary(null);
     setDetectedCleanerFormat(null);
     setParseProgress(null);
     setParsedCsv(null);
@@ -729,13 +744,13 @@ export default function App() {
     return loadRequestRef.current;
   }, []);
 
-  const completeCsvRead = useCallback((file, result, loadId, options = {}) => {
+  const completeCsvRead = useCallback((file, result, elapsedMs, loadId, options = {}) => {
     if (loadRequestRef.current !== loadId) {
       return false;
     }
 
     setSelectedFile(file);
-    loadParsedCsv(result);
+    loadParsedCsv(result, elapsedMs);
     if (options.persist) {
       persistCsvFileForSession(file, result, () => loadRequestRef.current === loadId).catch((caughtError) => {
         console.warn('Could not persist CSV for reload restore.', caughtError);
@@ -754,6 +769,7 @@ export default function App() {
     setDeviceMapData({points: [], segments: []});
     setStatus('Choose a CSV to map detections.');
     setParseProgress(null);
+    setCsvReadSummary(null);
     setIsParsing(false);
     setError('');
     setCleanError('');
@@ -869,9 +885,10 @@ export default function App() {
     }
 
     const loadId = beginCsvRead(`Reading ${file.name}...`);
+    const startedAt = performance.now();
     try {
       const result = await parseShadowViewCsv(file, setParseProgress);
-      completeCsvRead(file, result, loadId, {persist: true});
+      completeCsvRead(file, result, performance.now() - startedAt, loadId, {persist: true});
     } catch (caughtError) {
       if (loadRequestRef.current !== loadId) {
         return;
@@ -944,10 +961,11 @@ export default function App() {
     window.__shadowViewLoadCsvTextForTest = (csvText, fileName = 'test.csv', options = {}) => {
       const file = new File([csvText], fileName, {type: 'text/csv'});
       const loadId = beginCsvRead(`Reading ${fileName}...`);
+      const startedAt = performance.now();
 
       try {
         const result = parseShadowViewCsvText(csvText, fileName, setParseProgress);
-        completeCsvRead(file, result, loadId, {persist: Boolean(options.persist)});
+        completeCsvRead(file, result, performance.now() - startedAt, loadId, {persist: Boolean(options.persist)});
         return result;
       } catch (caughtError) {
         if (loadRequestRef.current !== loadId) {
@@ -983,6 +1001,7 @@ export default function App() {
     const persistSampleCsv = new URLSearchParams(window.location.search).get('persistSampleCsv') === '1';
     const sampleFileName = displayNameFromUrl(sampleCsv);
     const loadId = beginCsvRead(`Reading ${sampleFileName}...`);
+    const startedAt = performance.now();
 
     fetch(sampleCsv)
       .then((response) => {
@@ -997,7 +1016,7 @@ export default function App() {
         }
         const file = new File([csvText], sampleFileName, {type: 'text/csv'});
         const result = parseShadowViewCsvText(csvText, sampleFileName, setParseProgress);
-        completeCsvRead(file, result, loadId, {persist: persistSampleCsv});
+        completeCsvRead(file, result, performance.now() - startedAt, loadId, {persist: persistSampleCsv});
       })
       .catch((caughtError) => {
         if (cancelled || loadRequestRef.current !== loadId) {
@@ -1104,6 +1123,12 @@ export default function App() {
                   <span>{selectedFile.name}</span>
                   <small>{formatFileSize(selectedFile.size)}</small>
                 </div>
+                {(csvProgressText || elapsedText) && (
+                  <div className="file-meta">
+                    {csvProgressText && <span>{csvProgressText}</span>}
+                    {elapsedText && <span>{elapsedText}</span>}
+                  </div>
+                )}
               </div>
               <button
                 aria-label={`Remove ${selectedFile.name}`}
@@ -1245,7 +1270,7 @@ export default function App() {
               )}
             </section>
 
-            <section className="panel">
+            <section className="panel threat-settings-panel">
               <ThreatSettings
                 config={threatConfig}
                 disabled={isParsing}
@@ -1328,7 +1353,7 @@ export default function App() {
         </section>
       </aside>
 
-      <section className="map-area">
+      <section className={`map-area ${detailsCollapsed ? 'details-collapsed' : ''}`.trim()}>
         <div className="map-card" ref={mapRef}>
           <KeplerGl
             appName="Shadow View"
@@ -1336,6 +1361,7 @@ export default function App() {
             mapboxApiAccessToken={MAPBOX_TOKEN}
             mapStyles={CUSTOM_MAP_STYLES}
             mapStylesReplaceDefault
+            mint={false}
             version="MVP"
             width={mapSize.width}
             height={mapSize.height}
@@ -1354,13 +1380,33 @@ export default function App() {
           )}
         </div>
 
-        <div className="details-card">
+        <div className={`details-card ${detailsCollapsed ? 'collapsed' : ''}`.trim()}>
           <div className="section-heading">
-            <h2>Sighting Details</h2>
-            <span>{selectedPoint ? `Row ${selectedPoint.__row_number}` : 'No selection'}</span>
+            <div className="details-heading-title">
+              <h2>Sighting Details</h2>
+              <span>{selectedPoint ? `Row ${selectedPoint.__row_number}` : 'No selection'}</span>
+            </div>
+            <button
+              aria-expanded={!detailsCollapsed}
+              className="tertiary-button details-toggle"
+              onClick={() => setDetailsCollapsed((collapsed) => !collapsed)}
+              title={detailsCollapsed ? 'Show sighting details' : 'Hide sighting details'}
+              type="button"
+            >
+              <ChevronDown
+                aria-hidden="true"
+                className={detailsCollapsed ? 'details-toggle-icon collapsed' : 'details-toggle-icon'}
+                size={16}
+              />
+              <span>{detailsCollapsed ? 'Show' : 'Hide'}</span>
+            </button>
           </div>
-          <p className="details-hint">Selected sighting values from the original CSV.</p>
-          <DetailTable row={selectedPoint} />
+          {!detailsCollapsed && (
+            <>
+              <p className="details-hint">Selected sighting values from the original CSV.</p>
+              <DetailTable row={selectedPoint} />
+            </>
+          )}
         </div>
       </section>
     </main>

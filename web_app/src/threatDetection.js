@@ -403,19 +403,3 @@ export function analyzeThreats(observations, config) {
     );
   });
 }
-
-export function threatSummary(threats, notifyAtSeverity) {
-  const notifyRank = severityRank(notifyAtSeverity);
-  const notifyingThreats = threats.filter((threat) => threat.rank >= notifyRank);
-  if (!notifyingThreats.length) {
-    return null;
-  }
-
-  return {
-    count: notifyingThreats.length,
-    highestSeverity: notifyingThreats[0].severity,
-    highCount: notifyingThreats.filter((threat) => threat.severity === 'high').length,
-    mediumCount: notifyingThreats.filter((threat) => threat.severity === 'medium').length,
-    lowCount: notifyingThreats.filter((threat) => threat.severity === 'low').length
-  };
-}

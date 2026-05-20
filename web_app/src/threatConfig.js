@@ -11,13 +11,11 @@ export const DEFAULT_THREAT_CONFIG = Object.freeze({
   minScansHigh: 25,
   minDurationMinutesHigh: 180,
   minPathSpanMetersHigh: 1250,
-  notifyAtSeverity: 'high',
   maxThreatsToShow: 10
 });
 
 const STORAGE_KEY = 'shadow-view-threat-config-v3';
 const CONFIG_URL = '/threat-detection-config.json';
-const SEVERITIES = new Set(['low', 'medium', 'high']);
 
 function toPositiveNumber(value, fallback, {allowZero = false} = {}) {
   const number = Number(value);
@@ -39,7 +37,6 @@ export function normalizeThreatConfig(rawConfig = {}) {
     ...DEFAULT_THREAT_CONFIG,
     ...(rawConfig && typeof rawConfig === 'object' ? rawConfig : {})
   };
-  const notifyAtSeverity = String(merged.notifyAtSeverity || '').toLowerCase();
   const maxDetectionRadiusMeters = toPositiveNumber(
     merged.maxDetectionRadiusMeters,
     DEFAULT_THREAT_CONFIG.maxDetectionRadiusMeters
@@ -82,9 +79,6 @@ export function normalizeThreatConfig(rawConfig = {}) {
       DEFAULT_THREAT_CONFIG.minPathSpanMetersHigh,
       {allowZero: true}
     ),
-    notifyAtSeverity: SEVERITIES.has(notifyAtSeverity)
-      ? notifyAtSeverity
-      : DEFAULT_THREAT_CONFIG.notifyAtSeverity,
     maxThreatsToShow: toPositiveInteger(merged.maxThreatsToShow, DEFAULT_THREAT_CONFIG.maxThreatsToShow)
   };
 }

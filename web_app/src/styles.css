@@ -63,7 +63,11 @@ input {
   min-height: 0;
   overflow-y: auto;
   padding-right: 4px;
-  scrollbar-gutter: stable;
+  scrollbar-width: none;
+}
+
+.sidebar::-webkit-scrollbar {
+  display: none;
 }
 
 .sidebar > * {
@@ -238,6 +242,14 @@ h2 {
 .file-title small {
   margin-left: auto;
   white-space: nowrap;
+}
+
+.file-meta {
+  display: grid;
+  gap: 2px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .file-remove-button {
@@ -719,18 +731,35 @@ select {
 }
 
 .threat-settings {
-  display: grid;
-  gap: 12px;
+  display: block;
+}
+
+.threat-settings-panel {
+  padding-block: 14px;
 }
 
 .threat-settings summary {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   cursor: pointer;
   font-size: 13px;
   font-weight: 800;
   list-style: none;
+}
+
+.threat-settings[open] summary {
+  margin-bottom: 12px;
+}
+
+.threat-settings-caret {
+  color: var(--muted);
+  transition: transform 0.16s ease;
+}
+
+.threat-settings[open] .threat-settings-caret {
+  transform: rotate(180deg);
 }
 
 .threat-settings summary::-webkit-details-marker {
@@ -750,7 +779,7 @@ select {
 }
 
 .criteria-basics {
-  margin-top: 12px;
+  margin-top: 0;
 }
 
 .criteria-group {
@@ -918,6 +947,10 @@ select {
   min-height: 0;
 }
 
+.map-area.details-collapsed {
+  grid-template-rows: minmax(340px, 1fr) auto;
+}
+
 .map-card {
   position: relative;
   min-height: 0;
@@ -1002,6 +1035,39 @@ select {
   box-shadow: none;
 }
 
+.details-card.collapsed {
+  padding-block: 10px;
+}
+
+.details-card.collapsed .section-heading {
+  margin-bottom: 0;
+}
+
+.details-heading-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.details-heading-title h2,
+.details-heading-title span {
+  min-width: 0;
+}
+
+.details-toggle {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+}
+
+.details-toggle-icon {
+  transition: transform 160ms ease;
+}
+
+.details-toggle-icon.collapsed {
+  transform: rotate(180deg);
+}
+
 .details-hint {
   margin-bottom: 12px;
 }
@@ -1049,6 +1115,10 @@ select {
 
   .map-area {
     grid-template-rows: 520px minmax(220px, auto);
+  }
+
+  .map-area.details-collapsed {
+    grid-template-rows: minmax(520px, 70vh) auto;
   }
 
   .map-card {

@@ -11,6 +11,5 @@
   "minScansHigh": 25,
   "minDurationMinutesHigh": 180,
   "minPathSpanMetersHigh": 1250,
-  "notifyAtSeverity": "high",
   "maxThreatsToShow": 10
 }

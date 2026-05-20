@@ -29,7 +29,6 @@ export function deviceMatchesSearch(device, threat, term) {
   return [
     device?.id,
     device?.label,
-    threat?.severity ?? '',
     ...(threat?.ssids ?? [])
   ]
     .join(' ')
