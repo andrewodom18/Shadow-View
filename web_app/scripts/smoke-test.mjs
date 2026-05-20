@@ -59,7 +59,7 @@ const groupedMapData = prepareDeviceMapData(parsed.observations, 'aa:bb:cc:00:00
 });
 assert.equal(groupedMapData.points.length, 1);
 assert.equal(groupedMapData.rawPointCount, 2);
-assert.equal(groupedMapData.points[0]['Grouped sightings'], 2);
+assert.equal(groupedMapData.points[0]['Grouped scans'], 2);
 assert.equal(groupedMapData.points[0].__cluster_size, 2);
 assert.equal(groupedMapData.clusterDistanceMeters, 200);
 assert.equal(clickedPointIndex({picked: true, index: 1, layer: {props: {id: POINTS_LAYER_ID}}}), 1);

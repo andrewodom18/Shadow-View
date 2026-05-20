@@ -254,6 +254,33 @@ function medianNumber(values) {
   return sorted.length % 2 === 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
+function durationLabel(ms) {
+  if (!Number.isFinite(ms)) {
+    return '';
+  }
+  if (ms <= 0) {
+    return '<1 min';
+  }
+
+  const totalMinutes = Math.max(1, Math.round(ms / 60000));
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  const parts = [];
+
+  if (days) {
+    parts.push(`${days}d`);
+  }
+  if (hours) {
+    parts.push(`${hours}h`);
+  }
+  if (minutes || !parts.length) {
+    parts.push(`${minutes}m`);
+  }
+
+  return parts.join(' ');
+}
+
 function groupedObservations(observations, distanceThresholdMeters) {
   if (!Number.isFinite(distanceThresholdMeters) || distanceThresholdMeters <= 0) {
     return observations.map((observation) => [observation]);
@@ -282,9 +309,16 @@ function observationGroupPoint(group, index) {
   const orderedGroup = group.slice().sort(compareByTime);
   const representative = orderedGroup[0];
   const rows = orderedGroup.map((observation) => observation.rowNumber);
+  const timedObservations = orderedGroup.filter((observation) => Number.isFinite(observation.timeMs));
+  const firstTimedObservation = timedObservations[0] ?? null;
+  const lastTimedObservation = timedObservations[timedObservations.length - 1] ?? null;
+  const durationMs =
+    firstTimedObservation && lastTimedObservation ? lastTimedObservation.timeMs - firstTimedObservation.timeMs : null;
+  const locationDuration = durationLabel(durationMs);
   const detectionRadii = orderedGroup
     .map((observation) => Number(observation.detectionRadius ?? observation.accuracy))
     .filter(Number.isFinite);
+  const detectionRadiusMeters = medianNumber(detectionRadii) ?? representative.detectionRadius;
   const groupRadiusMeters = Math.max(
     0,
     ...orderedGroup.map((observation) => distanceMeters(representative, observation)).filter(Number.isFinite)
@@ -292,11 +326,19 @@ function observationGroupPoint(group, index) {
 
   return {
     ...representative.original,
+    'Map radius (m)': Number.isFinite(detectionRadiusMeters) ? Math.round(detectionRadiusMeters) : '',
     ...(orderedGroup.length > 1
       ? {
-          'Grouped sightings': orderedGroup.length,
+          'Grouped scans': orderedGroup.length,
           'Grouped rows': `${Math.min(...rows)}-${Math.max(...rows)}`,
-          'Location group radius (m)': Math.round(groupRadiusMeters)
+          'Location group radius (m)': Math.round(groupRadiusMeters),
+          ...(locationDuration
+            ? {
+                'Location first seen': firstTimedObservation.timeRaw,
+                'Location last seen': lastTimedObservation.timeRaw,
+                'Location duration': locationDuration
+              }
+            : {})
         }
       : {}),
     __row_number: representative.rowNumber,
@@ -307,11 +349,15 @@ function observationGroupPoint(group, index) {
     __event_time_iso: Number.isFinite(representative.timeMs) ? new Date(representative.timeMs).toISOString() : '',
     __sequence: index + 1,
     __mgrs: representative.mgrs,
-    __detection_radius_meters: medianNumber(detectionRadii) ?? representative.detectionRadius,
+    __detection_radius_meters: detectionRadiusMeters,
     __cluster_size: orderedGroup.length,
     __cluster_first_row: Math.min(...rows),
     __cluster_last_row: Math.max(...rows),
-    __cluster_radius_meters: Math.round(groupRadiusMeters)
+    __cluster_radius_meters: Math.round(groupRadiusMeters),
+    __cluster_start_time: firstTimedObservation?.timeRaw ?? '',
+    __cluster_end_time: lastTimedObservation?.timeRaw ?? '',
+    __cluster_duration_ms: Number.isFinite(durationMs) ? durationMs : null,
+    __cluster_duration_label: locationDuration
   };
 }
 

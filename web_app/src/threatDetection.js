@@ -291,7 +291,7 @@ function buildReason(metrics) {
   const scanCopy =
     metrics.qualifyingScanCount === metrics.scanCount
       ? ''
-      : ` from ${metrics.qualifyingScanCount} qualifying sighting${
+      : ` from ${metrics.qualifyingScanCount} qualifying scan${
           metrics.qualifyingScanCount === 1 ? '' : 's'
         }`;
   const radiusCopy =

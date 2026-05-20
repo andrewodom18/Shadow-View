@@ -185,7 +185,7 @@ export function createKeplerPayload({points, segments, deviceId, severity = '', 
     datasets: [
       {
         info: {
-          label: `Scanner sightings: ${deviceId}`,
+          label: `Scanner locations: ${deviceId}`,
           id: POINTS_DATASET_ID
         },
         data: pointData

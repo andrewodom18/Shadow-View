@@ -9,7 +9,9 @@ import {
   FileSpreadsheet,
   FileText,
   Loader2,
+  MapPin,
   RotateCcw,
+  Search,
   SlidersHorizontal,
   Upload,
   WifiOff,
@@ -277,7 +279,7 @@ function OutputToggle({checked, disabled, icon: Icon, label, onChange}) {
   );
 }
 
-function SidebarDropdown({ariaLive, children, className = '', count, defaultOpen = true, icon: Icon, title}) {
+function SidebarDropdown({ariaLive, children, className = '', count, defaultOpen = true, icon: Icon, meta, title}) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
   return (
@@ -287,6 +289,7 @@ function SidebarDropdown({ariaLive, children, className = '', count, defaultOpen
           {Icon && <Icon aria-hidden="true" size={15} />}
           <span className="sidebar-dropdown-title">{title}</span>
           {count !== undefined && <strong className="sidebar-dropdown-count">{count}</strong>}
+          {meta && <span className="sidebar-dropdown-meta">{meta}</span>}
           <ChevronDown aria-hidden="true" className="sidebar-dropdown-caret" size={18} />
         </summary>
         <div className="sidebar-dropdown-content">{children}</div>
@@ -302,11 +305,24 @@ function severityLabel(severity) {
   return `${severity[0].toUpperCase()}${severity.slice(1)}`;
 }
 
-function selectedDeviceTimeRange(device) {
-  if (device?.firstTimeMs === null || device?.firstTimeMs === undefined) {
+function observedTimeRange(firstTimeMs, lastTimeMs) {
+  if (!Number.isFinite(firstTimeMs) && !Number.isFinite(lastTimeMs)) {
     return 'Unknown';
   }
-  return `${formatTime(device.firstTimeMs)} to ${formatTime(device.lastTimeMs)}`;
+
+  if (!Number.isFinite(firstTimeMs) || firstTimeMs === lastTimeMs) {
+    return formatTime(Number.isFinite(firstTimeMs) ? firstTimeMs : lastTimeMs);
+  }
+
+  if (!Number.isFinite(lastTimeMs)) {
+    return formatTime(firstTimeMs);
+  }
+
+  return `${formatTime(firstTimeMs)} to ${formatTime(lastTimeMs)}`;
+}
+
+function threatObservedTimeRange(threat) {
+  return observedTimeRange(threat?.metrics?.firstTimeMs, threat?.metrics?.lastTimeMs);
 }
 
 function formatDetectionRadius(value) {
@@ -317,8 +333,9 @@ function formatDetectionRadius(value) {
 function scannerSightingMeta(point) {
   const location = `${point.__latitude.toFixed(6)}, ${point.__longitude.toFixed(6)}`;
   const radius = formatDetectionRadius(point.__detection_radius_meters);
-  const grouped = point.__cluster_size > 1 ? `${point.__cluster_size.toLocaleString()} sightings` : '';
-  return [location, radius, grouped].filter(Boolean).join(' - ');
+  const grouped = point.__cluster_size > 1 ? `${point.__cluster_size.toLocaleString()} scans` : '';
+  const duration = point.__cluster_duration_label ? `${point.__cluster_duration_label} here` : '';
+  return [location, radius, grouped, duration].filter(Boolean).join(' - ');
 }
 
 function visibleSightingPoints(points, order) {
@@ -401,15 +418,15 @@ function SeveritySettings({config, disabled, label, level, onValue}) {
       <div className="settings-grid compact">
         <SettingNumber
           disabled={disabled}
-          help="Minimum scanner-location clusters where this BSSID must appear. Repeated sightings inside the same location radius count once."
-          label="Unique scans"
+          help="Minimum scanner-location clusters where this BSSID must appear. Repeated scans inside the same location radius count once."
+          label="Unique locations"
           min={1}
           value={config[`minScans${suffix}`]}
           onChange={(value) => onValue(`minScans${suffix}`, value)}
         />
         <SettingNumber
           disabled={disabled}
-          help="Minimum elapsed time between the first and last qualifying sighting."
+          help="Minimum elapsed time between the first and last qualifying scan."
           label="Minutes"
           min={0}
           value={config[`minDurationMinutes${suffix}`]}
@@ -465,7 +482,7 @@ function ThreatSettings({config, disabled, onChange, onReset}) {
         />
         <SettingNumber
           disabled={disabled}
-          help="Only sightings with Accuracy at or below this radius qualify."
+          help="Only scans with Accuracy at or below this radius qualify."
           label="Max radius (m)"
           min={1}
           value={config.maxDetectionRadiusMeters}
@@ -518,10 +535,8 @@ function ThreatPanel({
   onSearchChange,
   onSelectThreat,
   searchValue,
-  selectedDevice,
   selectedDeviceId,
   selectedDeviceOutsideFilter,
-  selectedDeviceThreat,
   selectedThreatBssid,
   severityFilter,
   searchedDeviceCount,
@@ -539,7 +554,7 @@ function ThreatPanel({
       ariaLive="polite"
       className="review-panel"
       count={totalDeviceCount.toLocaleString()}
-      icon={AlertTriangle}
+      icon={Search}
       title="BSSID Review"
     >
       <div className="severity-filter" role="group" aria-label="Threat severity filter">
@@ -594,28 +609,6 @@ function ThreatPanel({
               : 'No BSSIDs match the current search and severity filter. The current map selection is unchanged.'}
           </p>
         )}
-        {selectedDevice && (
-          <div className={`device-summary-card ${selectedDeviceThreat?.severity ?? ''}`.trim()}>
-            <div>
-              <span>Severity</span>
-              {selectedDeviceThreat ? (
-                <strong className={`severity-badge ${selectedDeviceThreat.severity}`}>
-                  {severityLabel(selectedDeviceThreat.severity)}
-                </strong>
-              ) : (
-                <strong>Normal</strong>
-              )}
-            </div>
-            <div>
-              <span>Sightings</span>
-              <strong>{selectedDevice.count.toLocaleString()}</strong>
-            </div>
-            <div className="wide">
-              <span>Observed</span>
-              <strong>{selectedDeviceTimeRange(selectedDevice)}</strong>
-            </div>
-          </div>
-        )}
       </div>
       <div className="panel-subheading">
         <h3>Threat Indicators</h3>
@@ -642,6 +635,7 @@ function ThreatPanel({
               <span className={`severity-badge ${threat.severity}`}>{severityLabel(threat.severity)}</span>
               <strong>{threat.bssid}</strong>
               {Boolean(threat.ssids.length) && <small>{threat.ssids.join(' | ')}</small>}
+              <small className="threat-observed">Observed {threatObservedTimeRange(threat)}</small>
               <p>{threat.reason}</p>
             </button>
           ))}
@@ -653,13 +647,13 @@ function ThreatPanel({
 
 function DetailTable({row}) {
   if (!row) {
-    return <p className="empty-state">Select a sighting to inspect its CSV values.</p>;
+    return <p className="empty-state">Select a map item to inspect its CSV values.</p>;
   }
 
   const values = Object.entries(row).filter(([key, value]) => !key.startsWith('__') && value !== '');
 
   if (!values.length) {
-    return <p className="empty-state">No populated CSV values for this sighting.</p>;
+    return <p className="empty-state">No populated CSV values for this selection.</p>;
   }
 
   return (
@@ -688,16 +682,16 @@ function MapScopeStatus({
   }
 
   const severity = selectedDeviceThreat?.severity ?? '';
-  const scope = selectedMapThreat ? 'qualifying threat scans' : 'scanner locations';
+  const scope = selectedMapThreat ? 'qualifying threat locations' : 'scanner locations';
   const rawCount = Number.isFinite(rawPointCount) ? rawPointCount : pointCount;
   const distanceCopy =
-    !selectedMapThreat && Number.isFinite(clusterDistanceMeters) && clusterDistanceMeters > 0
+    Number.isFinite(clusterDistanceMeters) && clusterDistanceMeters > 0
       ? ` (${Math.round(clusterDistanceMeters).toLocaleString()}m groups)`
       : '';
   const countCopy =
-    selectedMapThreat || rawCount === pointCount
+    rawCount === pointCount
       ? `${pointCount.toLocaleString()} ${scope}`
-      : `${pointCount.toLocaleString()} ${scope} from ${rawCount.toLocaleString()} sightings`;
+      : `${pointCount.toLocaleString()} ${scope} from ${rawCount.toLocaleString()} scans`;
 
   return (
     <div className={`map-scope-status ${severity}`.trim()} aria-live="polite">
@@ -719,7 +713,7 @@ function MapSelectionCard({point, selectedMapThreat}) {
 
   return (
     <div className="map-selection-card" aria-live="polite">
-      <span>{selectedMapThreat ? 'Selected Scan' : 'Selected Location'}</span>
+      <span>{selectedMapThreat ? 'Selected Threat Location' : 'Selected Location'}</span>
       <strong>Row {point.__row_number}</strong>
       <small>{point.__event_time || 'Unknown time'}</small>
       <small>{scannerSightingMeta(point)}</small>
@@ -1233,7 +1227,7 @@ export default function App() {
       return undefined;
     }
 
-    const clusterDistanceMeters = selectedMapThreat ? 0 : threatConfig.sameLocationMeters;
+    const clusterDistanceMeters = threatConfig.sameLocationMeters;
     const nextMapData = prepareDeviceMapData(parsedCsv.observations, selectedDeviceId, {
       includedRowNumbers: selectedMapThreat?.qualifyingRowNumbers,
       clusterDistanceMeters
@@ -1346,11 +1340,15 @@ export default function App() {
           <div className="brand-mark">SV</div>
           <div>
             <h1>Shadow View Map</h1>
-            <p>BSSID sightings along the scanner path</p>
+            <p>BSSID scans along the scanner path</p>
           </div>
         </div>
 
-        <section className={selectedFile ? 'panel upload-panel loaded' : 'panel upload-panel'}>
+        <SidebarDropdown
+          className={selectedFile ? 'upload-panel loaded' : 'upload-panel'}
+          icon={FileText}
+          title="CSV Upload"
+        >
           <input
             accept=".csv,text/csv"
             className="visually-hidden"
@@ -1387,7 +1385,6 @@ export default function App() {
           ) : (
             <>
               <div>
-                <h2>CSV Upload</h2>
                 <p>{isRestoringCsv ? 'Restoring saved CSV' : 'Add a Shadow View CSV'}</p>
               </div>
               <button
@@ -1401,7 +1398,7 @@ export default function App() {
               </button>
             </>
           )}
-        </section>
+        </SidebarDropdown>
 
         {showStatusCard && (
           <section className="status-card" aria-live="polite">
@@ -1415,11 +1412,18 @@ export default function App() {
 
         {parsedCsv && (
           <>
-            <section className="stats-grid">
-              <Stat label="Mappable rows" value={parsedCsv.mappedRows.toLocaleString()} />
-              <Stat label="BSSIDs" value={parsedCsv.devices.length.toLocaleString()} />
-              <Stat label="Skipped rows" value={parsedCsv.skippedRows.toLocaleString()} />
-            </section>
+            <SidebarDropdown
+              className="summary-panel"
+              count={parsedCsv.rowCount.toLocaleString()}
+              icon={CheckCircle2}
+              title="CSV Summary"
+            >
+              <div className="stats-grid">
+                <Stat label="Mappable rows" value={parsedCsv.mappedRows.toLocaleString()} />
+                <Stat label="BSSIDs" value={parsedCsv.devices.length.toLocaleString()} />
+                <Stat label="Skipped rows" value={parsedCsv.skippedRows.toLocaleString()} />
+              </div>
+            </SidebarDropdown>
 
             <ThreatPanel
               deviceOptions={deviceOptions}
@@ -1436,10 +1440,8 @@ export default function App() {
                 setSelectedThreatBssid(threat.bssid);
               }}
               searchValue={reviewSearch}
-              selectedDevice={selectedDevice}
               selectedDeviceId={selectedDeviceId}
               selectedDeviceOutsideFilter={selectedDeviceOutsideFilter}
-              selectedDeviceThreat={selectedDeviceThreat}
               selectedThreatBssid={selectedThreatBssid}
               severityFilter={threatSeverityFilter}
               searchedDeviceCount={searchedDevices.length}
@@ -1449,23 +1451,26 @@ export default function App() {
               visibleThreats={visibleThreats}
             />
 
-            <section className="panel sightings-panel">
-              <div className="section-heading">
-                <h2>{selectedMapThreat ? 'Threat Scans' : 'Scanner Locations'}</h2>
-                <span>{deviceMapData.points.length.toLocaleString()}</span>
-              </div>
+            <SidebarDropdown
+              className="sightings-panel"
+              count={deviceMapData.points.length.toLocaleString()}
+              icon={MapPin}
+              title={selectedMapThreat ? 'Threat Locations' : 'Scanner Locations'}
+            >
               {selectedMapThreat && (
                 <div className="scope-note">
                   <p>
-                    Showing {deviceMapData.points.length.toLocaleString()} qualifying scans used for this threat.
+                    Showing {deviceMapData.points.length.toLocaleString()} location groups from{' '}
+                    {(deviceMapData.rawPointCount ?? selectedMapThreat.metrics.qualifyingScanCount).toLocaleString()}{' '}
+                    qualifying scans used for this threat.
                   </p>
                   <button className="tertiary-button" onClick={() => setSelectedThreatBssid('')} type="button">
-                    Show all sightings
+                    Show all locations
                   </button>
                 </div>
               )}
               {deviceMapData.points.length > SIGHTING_LIST_LIMIT && (
-                <div className="segmented-control" role="group" aria-label="Sighting order">
+                <div className="segmented-control" role="group" aria-label="Location order">
                   <button
                     aria-pressed={sightingOrder === 'oldest'}
                     className={sightingOrder === 'oldest' ? 'active' : ''}
@@ -1507,16 +1512,16 @@ export default function App() {
                 })}
               </div>
               {selectedPointOutsideVisible && (
-                <p className="list-note">Selected map sighting is pinned above the current list.</p>
+                <p className="list-note">Selected map item is pinned above the current list.</p>
               )}
               {deviceMapData.points.length > visiblePoints.length && (
                 <p className="list-note">
                   Showing {sightingOrder === 'newest' ? 'newest' : 'oldest'} {visiblePoints.length}{' '}
-                  {selectedMapThreat ? 'scans' : 'locations'}. Map shows all{' '}
-                  {selectedMapThreat ? 'qualifying threat scans' : 'grouped scanner locations'}.
+                    locations. Map shows all{' '}
+                    {selectedMapThreat ? 'qualifying threat location groups' : 'grouped scanner locations'}.
                 </p>
               )}
-            </section>
+            </SidebarDropdown>
 
             <section className="panel threat-settings-panel">
               <ThreatSettings
@@ -1529,16 +1534,19 @@ export default function App() {
           </>
         )}
 
-        <section className="panel cleaner-panel">
-          <div className="section-heading">
-            <h2>Clean & Export</h2>
+        <SidebarDropdown
+          className="cleaner-panel"
+          icon={Download}
+          meta={
             <span className={cleanerApi.available ? 'api-state ready' : 'api-state offline'}>
               {cleanerApi.loading && <Loader2 aria-hidden="true" className="spin" size={13} />}
               {!cleanerApi.loading && cleanerApi.available && <CheckCircle2 aria-hidden="true" size={13} />}
               {!cleanerApi.loading && !cleanerApi.available && <WifiOff aria-hidden="true" size={13} />}
               {cleanerApi.loading ? 'Checking' : cleanerApi.available ? 'Ready' : 'Offline'}
             </span>
-          </div>
+          }
+          title="Clean & Export"
+        >
 
           {detectedCleanerFormat && (
             <p className="auto-cleaner-line">
@@ -1598,7 +1606,7 @@ export default function App() {
               <span>Downloaded {downloadInfo.fileName}</span>
             </div>
           )}
-        </section>
+        </SidebarDropdown>
       </aside>
 
       <section className={`map-area ${detailsCollapsed ? 'details-collapsed' : ''}`.trim()}>
@@ -1648,14 +1656,14 @@ export default function App() {
         <div className={`details-card ${detailsCollapsed ? 'collapsed' : ''}`.trim()}>
           <div className="section-heading">
             <div className="details-heading-title">
-              <h2>Sighting Details</h2>
+              <h2>Location Details</h2>
               <span>{selectedPoint ? `Row ${selectedPoint.__row_number}` : 'No selection'}</span>
             </div>
             <button
               aria-expanded={!detailsCollapsed}
               className="tertiary-button details-toggle"
               onClick={() => setDetailsCollapsed((collapsed) => !collapsed)}
-              title={detailsCollapsed ? 'Show sighting details' : 'Hide sighting details'}
+              title={detailsCollapsed ? 'Show details' : 'Hide details'}
               type="button"
             >
               <ChevronDown
@@ -1668,7 +1676,7 @@ export default function App() {
           </div>
           {!detailsCollapsed && (
             <>
-              <p className="details-hint">Selected sighting values from the original CSV.</p>
+              <p className="details-hint">Selected map item values from the original CSV.</p>
               <DetailTable row={selectedPoint} />
             </>
           )}

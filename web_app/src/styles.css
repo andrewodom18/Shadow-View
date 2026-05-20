@@ -137,14 +137,64 @@ h2 {
   padding: 16px;
 }
 
-.upload-panel {
+.sidebar-dropdown {
+  display: block;
+}
+
+.sidebar-dropdown summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 800;
+  list-style: none;
+}
+
+.sidebar-dropdown summary::-webkit-details-marker {
+  display: none;
+}
+
+.sidebar-dropdown[open] summary {
+  margin-bottom: 12px;
+}
+
+.sidebar-dropdown-title {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-dropdown-count {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.sidebar-dropdown-meta {
+  flex: 0 0 auto;
+}
+
+.sidebar-dropdown-caret {
+  flex: 0 0 auto;
+  color: var(--muted);
+  transition: transform 0.16s ease;
+}
+
+.sidebar-dropdown[open] .sidebar-dropdown-caret {
+  transform: rotate(180deg);
+}
+
+.upload-panel .sidebar-dropdown-content {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 14px;
 }
 
-.upload-panel.loaded {
+.upload-panel.loaded .sidebar-dropdown-content {
   grid-template-columns: 1fr;
 }
 
@@ -546,55 +596,15 @@ select {
   color: #8a97aa;
 }
 
-.review-panel {
-  display: grid;
-  gap: 10px;
-}
-
 .device-picker {
   display: grid;
   gap: 8px;
 }
 
-.device-summary-card {
+.review-panel .sidebar-dropdown-content,
+.cleaner-panel .sidebar-dropdown-content {
   display: grid;
-  grid-template-columns: minmax(0, 0.7fr) minmax(0, 0.8fr);
-  gap: 8px 14px;
-  padding: 4px 0 2px;
-}
-
-.device-summary-card > div {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-.device-summary-card > .wide {
-  grid-column: 1 / -1;
-}
-
-.device-summary-card span {
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 800;
-  line-height: 1;
-  text-transform: uppercase;
-}
-
-.device-summary-card strong {
-  min-width: 0;
-  color: var(--text);
-  font-size: 13px;
-  line-height: 1.25;
-}
-
-.device-summary-card .wide strong {
-  color: var(--muted);
-  font-weight: 650;
-}
-
-.device-summary-card .severity-badge {
-  justify-self: start;
+  gap: 10px;
 }
 
 .panel-subheading {
@@ -767,6 +777,11 @@ select {
   white-space: nowrap;
 }
 
+.threat-item .threat-observed {
+  color: var(--text);
+  font-weight: 650;
+}
+
 .threat-item p {
   grid-column: 1 / -1;
   color: var(--muted);
@@ -805,40 +820,8 @@ select {
   color: #ffffff;
 }
 
-.threat-settings {
-  display: block;
-}
-
 .threat-settings-panel {
   padding-block: 14px;
-}
-
-.threat-settings summary {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 800;
-  list-style: none;
-}
-
-.threat-settings[open] summary {
-  margin-bottom: 12px;
-}
-
-.threat-settings-caret {
-  color: var(--muted);
-  transition: transform 0.16s ease;
-}
-
-.threat-settings[open] .threat-settings-caret {
-  transform: rotate(180deg);
-}
-
-.threat-settings summary::-webkit-details-marker {
-  display: none;
 }
 
 .settings-grid {
@@ -1326,12 +1309,12 @@ select {
     padding: 10px;
   }
 
-  .upload-panel,
+  .upload-panel .sidebar-dropdown-content,
   .brand-row {
     align-items: flex-start;
   }
 
-  .upload-panel {
+  .upload-panel .sidebar-dropdown-content {
     grid-template-columns: 1fr;
   }
 
