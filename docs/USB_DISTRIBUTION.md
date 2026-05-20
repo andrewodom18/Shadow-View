@@ -22,9 +22,10 @@ The easiest handoff path is the GitHub Actions artifact:
 1. Open the repository on GitHub.
 2. Open **Actions**.
 3. Run **Build Windows App** on the branch or tag you want to ship.
-4. Download **Shadow View USB Bundle - Windows**.
-5. Unzip the downloaded artifact.
-6. Copy the unzipped contents to the USB drive.
+4. To also attach the files to an existing GitHub release, enter that release tag in `release_tag`.
+5. Download **Shadow View USB Bundle - Windows**.
+6. Unzip the downloaded artifact.
+7. Copy the unzipped contents to the USB drive.
 
 When the workflow runs from a published GitHub release, it also attaches these release assets:
 

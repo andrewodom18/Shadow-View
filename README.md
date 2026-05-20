@@ -115,9 +115,10 @@ Build the USB-ready Windows bundle from GitHub on any computer, including a Mac:
 2. Open the repo's **Actions** tab.
 3. Select **Build Windows App**.
 4. Click **Run workflow**.
-5. Open the completed run.
-6. Download the artifact named **Shadow View USB Bundle - Windows**.
-7. Unzip the downloaded artifact and copy its contents to the USB drive.
+5. To also attach the files to an existing GitHub release, enter that release tag in `release_tag`.
+6. Open the completed run.
+7. Download the artifact named **Shadow View USB Bundle - Windows**.
+8. Unzip the downloaded artifact and copy its contents to the USB drive.
 
 The bundle includes:
 
