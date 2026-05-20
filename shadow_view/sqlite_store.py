@@ -147,8 +147,7 @@ class DateTimeRange:
 class UniqueMgrsCount:
     def __init__(self) -> None:
         self.distance_threshold_meters = 50.0
-        self.clusters: list[list[MgrsPoint]] = []
-        self.unparseable_values: set[str] = set()
+        self.points: list[MgrsPoint] = []
 
     def step(self, value: object, distance_threshold_meters: object = None) -> None:
         if distance_threshold_meters is not None:
@@ -162,30 +161,29 @@ class UniqueMgrsCount:
 
         point = parse_mgrs(cleaned)
         if point is None:
-            self.unparseable_values.add(cleaned)
             return
 
-        matching_cluster_indexes = [
-            index
-            for index, cluster in enumerate(self.clusters)
-            if any(
-                mgrs_distance_meters(point, existing)
-                <= self.distance_threshold_meters
-                for existing in cluster
-            )
-        ]
-        if not matching_cluster_indexes:
-            self.clusters.append([point])
-            return
-
-        target_index = matching_cluster_indexes[0]
-        self.clusters[target_index].append(point)
-        for index in reversed(matching_cluster_indexes[1:]):
-            self.clusters[target_index].extend(self.clusters[index])
-            del self.clusters[index]
+        self.points.append(point)
 
     def finalize(self) -> int:
-        return len(self.clusters) + len(self.unparseable_values)
+        anchors: list[MgrsPoint] = []
+        for point in sorted(
+            self.points,
+            key=lambda item: (
+                item.zone,
+                item.hemisphere,
+                item.easting,
+                item.northing,
+            ),
+        ):
+            if any(
+                mgrs_distance_meters(point, anchor) <= self.distance_threshold_meters
+                for anchor in anchors
+            ):
+                continue
+            anchors.append(point)
+
+        return len(anchors)
 
 
 def register_aggregates(connection: sqlite3.Connection) -> None:

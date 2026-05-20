@@ -71,6 +71,27 @@ function formatFileSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function displayNameFromUrl(value, fallback = 'sample.csv') {
+  try {
+    const url = new URL(value, window.location.href);
+    if (url.protocol === 'data:') {
+      return fallback;
+    }
+    return decodeURIComponent(url.pathname.split('/').filter(Boolean).pop() || fallback);
+  } catch {
+    const name = value.split('/').filter(Boolean).pop();
+    return name && name.length < 80 ? name : fallback;
+  }
+}
+
+function cleanerStatusMessage(caughtError) {
+  const message = caughtError instanceof Error ? caughtError.message : String(caughtError || '');
+  if (/bad gateway|failed to fetch|load failed|networkerror|proxy/i.test(message)) {
+    return 'Cleaner backend offline.';
+  }
+  return message || 'Cleaner backend offline.';
+}
+
 function OutputToggle({checked, disabled, icon: Icon, label, onChange}) {
   return (
     <label className={checked ? 'output-toggle active' : 'output-toggle'}>
@@ -93,6 +114,17 @@ function severityLabel(severity) {
   return `${severity[0].toUpperCase()}${severity.slice(1)}`;
 }
 
+function formatDetectionRadius(value) {
+  const radius = Number(value);
+  return Number.isFinite(radius) ? `${Math.round(radius).toLocaleString()}m radius` : '';
+}
+
+function scannerSightingMeta(point) {
+  const location = `${point.__latitude.toFixed(6)}, ${point.__longitude.toFixed(6)}`;
+  const radius = formatDetectionRadius(point.__detection_radius_meters);
+  return radius ? `${location} - ${radius}` : location;
+}
+
 function SettingNumber({disabled, label, min = 0, step = 1, value, onChange}) {
   return (
     <label className="setting-field">
@@ -109,6 +141,46 @@ function SettingNumber({disabled, label, min = 0, step = 1, value, onChange}) {
   );
 }
 
+function SeveritySettings({config, disabled, label, level, onValue}) {
+  const suffix = `${level[0].toUpperCase()}${level.slice(1)}`;
+
+  return (
+    <fieldset className="criteria-group">
+      <legend>{label}</legend>
+      <div className="settings-grid compact">
+        <SettingNumber
+          disabled={disabled}
+          label="Scans"
+          min={1}
+          value={config[`minScans${suffix}`]}
+          onChange={(value) => onValue(`minScans${suffix}`, value)}
+        />
+        <SettingNumber
+          disabled={disabled}
+          label="Minutes"
+          min={0}
+          value={config[`minDurationMinutes${suffix}`]}
+          onChange={(value) => onValue(`minDurationMinutes${suffix}`, value)}
+        />
+        <SettingNumber
+          disabled={disabled}
+          label="Locations"
+          min={1}
+          value={config[`minUniqueLocations${suffix}`]}
+          onChange={(value) => onValue(`minUniqueLocations${suffix}`, value)}
+        />
+        <SettingNumber
+          disabled={disabled}
+          label="Path span (m)"
+          min={0}
+          value={config[`minPathSpanMeters${suffix}`]}
+          onChange={(value) => onValue(`minPathSpanMeters${suffix}`, value)}
+        />
+      </div>
+    </fieldset>
+  );
+}
+
 function ThreatSettings({config, disabled, onChange, onReset}) {
   const setConfigValue = (name, value) => {
     onChange({...config, [name]: value});
@@ -120,7 +192,7 @@ function ThreatSettings({config, disabled, onChange, onReset}) {
         <SlidersHorizontal aria-hidden="true" size={15} />
         <span>Threat Criteria</span>
       </summary>
-      <div className="settings-grid">
+      <div className="settings-grid criteria-basics">
         <label className="setting-field setting-toggle">
           <span>Detection</span>
           <input
@@ -132,101 +204,17 @@ function ThreatSettings({config, disabled, onChange, onReset}) {
         </label>
         <SettingNumber
           disabled={disabled}
-          label="Same location meters"
+          label="Same location (m)"
           min={1}
           value={config.sameLocationMeters}
           onChange={(value) => setConfigValue('sameLocationMeters', value)}
         />
         <SettingNumber
           disabled={disabled}
-          label="Max accuracy meters"
+          label="Max radius (m)"
           min={1}
-          value={config.maxAccuracyMeters}
-          onChange={(value) => setConfigValue('maxAccuracyMeters', value)}
-        />
-        <SettingNumber
-          disabled={disabled}
-          label="Low scans"
-          min={1}
-          value={config.minScansLow}
-          onChange={(value) => setConfigValue('minScansLow', value)}
-        />
-        <SettingNumber
-          disabled={disabled}
-          label="Low minutes"
-          min={0}
-          value={config.minDurationMinutesLow}
-          onChange={(value) => setConfigValue('minDurationMinutesLow', value)}
-        />
-        <SettingNumber
-          disabled={disabled}
-          label="Low locations"
-          min={1}
-          value={config.minUniqueLocationsLow}
-          onChange={(value) => setConfigValue('minUniqueLocationsLow', value)}
-        />
-        <SettingNumber
-          disabled={disabled}
-          label="Low span meters"
-          min={0}
-          value={config.minPathSpanMetersLow}
-          onChange={(value) => setConfigValue('minPathSpanMetersLow', value)}
-        />
-        <SettingNumber
-          disabled={disabled}
-          label="Medium scans"
-          min={1}
-          value={config.minScansMedium}
-          onChange={(value) => setConfigValue('minScansMedium', value)}
-        />
-        <SettingNumber
-          disabled={disabled}
-          label="Medium minutes"
-          min={0}
-          value={config.minDurationMinutesMedium}
-          onChange={(value) => setConfigValue('minDurationMinutesMedium', value)}
-        />
-        <SettingNumber
-          disabled={disabled}
-          label="Medium locations"
-          min={1}
-          value={config.minUniqueLocationsMedium}
-          onChange={(value) => setConfigValue('minUniqueLocationsMedium', value)}
-        />
-        <SettingNumber
-          disabled={disabled}
-          label="Medium span meters"
-          min={0}
-          value={config.minPathSpanMetersMedium}
-          onChange={(value) => setConfigValue('minPathSpanMetersMedium', value)}
-        />
-        <SettingNumber
-          disabled={disabled}
-          label="High scans"
-          min={1}
-          value={config.minScansHigh}
-          onChange={(value) => setConfigValue('minScansHigh', value)}
-        />
-        <SettingNumber
-          disabled={disabled}
-          label="High minutes"
-          min={0}
-          value={config.minDurationMinutesHigh}
-          onChange={(value) => setConfigValue('minDurationMinutesHigh', value)}
-        />
-        <SettingNumber
-          disabled={disabled}
-          label="High locations"
-          min={1}
-          value={config.minUniqueLocationsHigh}
-          onChange={(value) => setConfigValue('minUniqueLocationsHigh', value)}
-        />
-        <SettingNumber
-          disabled={disabled}
-          label="High span meters"
-          min={0}
-          value={config.minPathSpanMetersHigh}
-          onChange={(value) => setConfigValue('minPathSpanMetersHigh', value)}
+          value={config.maxDetectionRadiusMeters}
+          onChange={(value) => setConfigValue('maxDetectionRadiusMeters', value)}
         />
         <label className="setting-field">
           <span>Notify at</span>
@@ -248,6 +236,27 @@ function ThreatSettings({config, disabled, onChange, onReset}) {
           onChange={(value) => setConfigValue('maxThreatsToShow', value)}
         />
       </div>
+      <SeveritySettings
+        config={config}
+        disabled={disabled}
+        label="Low"
+        level="low"
+        onValue={setConfigValue}
+      />
+      <SeveritySettings
+        config={config}
+        disabled={disabled}
+        label="Medium"
+        level="medium"
+        onValue={setConfigValue}
+      />
+      <SeveritySettings
+        config={config}
+        disabled={disabled}
+        label="High"
+        level="high"
+        onValue={setConfigValue}
+      />
       <button className="tertiary-button" disabled={disabled} onClick={onReset} type="button">
         <RotateCcw aria-hidden="true" size={14} />
         <span>Reset Criteria</span>
@@ -260,19 +269,21 @@ function ThreatPanel({notification, onSelectThreat, selectedDeviceId, threats, v
   return (
     <section className="panel threat-panel" aria-live="polite">
       <div className="section-heading">
-        <h2>Possible Threats</h2>
+        <h2>Threat Indicators</h2>
         <span>{threats.length.toLocaleString()}</span>
       </div>
       {notification ? (
         <div className={`threat-alert ${notification.highestSeverity}`}>
           <Bell aria-hidden="true" size={16} />
           <span>
-            {notification.count.toLocaleString()} possible threats detected. Highest severity:{' '}
-            {severityLabel(notification.highestSeverity)}.
+            {notification.count.toLocaleString()} BSSID{notification.count === 1 ? '' : 's'} match.
+            Highest severity: {severityLabel(notification.highestSeverity)}.
           </span>
         </div>
+      ) : threats.length ? (
+        <p className="empty-state">Matches are below the notification threshold.</p>
       ) : (
-        <p className="empty-state">No BSSIDs meet the current threat criteria.</p>
+        <p className="empty-state">No BSSIDs match the current criteria.</p>
       )}
       {Boolean(visibleThreats.length) && (
         <div className="threat-list">
@@ -297,19 +308,23 @@ function ThreatPanel({notification, onSelectThreat, selectedDeviceId, threats, v
 
 function DetailTable({row}) {
   if (!row) {
-    return <p className="empty-state">Choose a sighting below to inspect the original CSV values.</p>;
+    return <p className="empty-state">Select a sighting to inspect its CSV values.</p>;
+  }
+
+  const values = Object.entries(row).filter(([key, value]) => !key.startsWith('__') && value !== '');
+
+  if (!values.length) {
+    return <p className="empty-state">No populated CSV values for this sighting.</p>;
   }
 
   return (
     <div className="detail-table">
-      {Object.entries(row)
-        .filter(([, value]) => value !== '')
-        .map(([key, value]) => (
-          <div className="detail-row" key={key}>
-            <dt>{key}</dt>
-            <dd>{String(value)}</dd>
-          </div>
-        ))}
+      {values.map(([key, value]) => (
+        <div className="detail-row" key={key}>
+          <dt>{key}</dt>
+          <dd>{String(value)}</dd>
+        </div>
+      ))}
     </div>
   );
 }
@@ -322,7 +337,7 @@ export default function App() {
   const [selectedDeviceId, setSelectedDeviceId] = useState('');
   const [deviceMapData, setDeviceMapData] = useState({points: [], segments: []});
   const [selectedPoint, setSelectedPoint] = useState(null);
-  const [status, setStatus] = useState('Upload a Shadow View CSV to map device movement.');
+  const [status, setStatus] = useState('Choose a CSV to map detections.');
   const [parseProgress, setParseProgress] = useState(null);
   const [isParsing, setIsParsing] = useState(false);
   const [error, setError] = useState('');
@@ -382,7 +397,7 @@ export default function App() {
         setCleanerApi({
           available: false,
           loading: false,
-          message: caughtError instanceof Error ? caughtError.message : 'Cleaner API offline.'
+          message: cleanerStatusMessage(caughtError)
         });
       });
 
@@ -422,6 +437,7 @@ export default function App() {
     setCleanError('');
     setDownloadInfo(null);
     setElapsedMs(null);
+    setParseProgress(null);
     setParsedCsv(null);
     setSelectedDeviceId('');
     setSelectedPoint(null);
@@ -479,7 +495,7 @@ export default function App() {
       downloadBlob(result.blob, result.fileName);
       setDownloadInfo({fileName: result.fileName});
     } catch (caughtError) {
-      setCleanError(caughtError instanceof Error ? caughtError.message : String(caughtError));
+      setCleanError(cleanerStatusMessage(caughtError));
     } finally {
       setIsCleaning(false);
     }
@@ -493,7 +509,13 @@ export default function App() {
     window.__shadowViewLoadCsvTextForTest = (csvText, fileName = 'test.csv') => {
       setIsParsing(true);
       setError('');
+      setCleanError('');
+      setDownloadInfo(null);
       setElapsedMs(null);
+      setParseProgress(null);
+      setParsedCsv(null);
+      setSelectedFile(new File([csvText], fileName, {type: 'text/csv'}));
+      setSelectedDeviceId('');
       setSelectedPoint(null);
       setDeviceMapData({points: [], segments: []});
       const started = performance.now();
@@ -528,9 +550,18 @@ export default function App() {
     }
 
     let cancelled = false;
+    const sampleFileName = displayNameFromUrl(sampleCsv);
     setIsParsing(true);
     setError('');
-    setStatus(`Reading ${sampleCsv}...`);
+    setCleanError('');
+    setDownloadInfo(null);
+    setElapsedMs(null);
+    setParseProgress(null);
+    setParsedCsv(null);
+    setSelectedDeviceId('');
+    setSelectedPoint(null);
+    setDeviceMapData({points: [], segments: []});
+    setStatus(`Reading ${sampleFileName}...`);
     const started = performance.now();
 
     fetch(sampleCsv)
@@ -544,7 +575,8 @@ export default function App() {
         if (cancelled) {
           return;
         }
-        const result = parseShadowViewCsvText(csvText, sampleCsv.split('/').pop() || 'sample.csv', setParseProgress);
+        setSelectedFile(new File([csvText], sampleFileName, {type: 'text/csv'}));
+        const result = parseShadowViewCsvText(csvText, sampleFileName, setParseProgress);
         loadParsedCsv(result, performance.now() - started);
       })
       .catch((caughtError) => {
@@ -567,13 +599,17 @@ export default function App() {
 
   useEffect(() => {
     if (!parsedCsv || !selectedDeviceId) {
-      return;
+      return undefined;
     }
 
     const nextMapData = prepareDeviceMapData(parsedCsv.observations, selectedDeviceId);
     setDeviceMapData(nextMapData);
     setSelectedPoint(nextMapData.points[0] ?? null);
-    dispatch(addDataToMap(createKeplerPayload({...nextMapData, deviceId: selectedDeviceId})));
+    const timer = window.setTimeout(() => {
+      dispatch(addDataToMap(createKeplerPayload({...nextMapData, deviceId: selectedDeviceId})));
+    }, 500);
+
+    return () => window.clearTimeout(timer);
   }, [dispatch, parsedCsv, selectedDeviceId]);
 
   const visiblePoints = deviceMapData.points.slice(0, 150);
@@ -585,14 +621,14 @@ export default function App() {
           <div className="brand-mark">SV</div>
           <div>
             <h1>Shadow View Map</h1>
-            <p>Device trail viewer</p>
+            <p>BSSID sightings along the scanner path</p>
           </div>
         </div>
 
         <section className="panel upload-panel">
           <div>
             <h2>CSV Upload</h2>
-            <p>Maps BSSID movement from raw Shadow View exports.</p>
+            <p>Load a Shadow View CSV to review scanner detections by BSSID.</p>
           </div>
           <input
             accept=".csv,text/csv"
@@ -601,7 +637,12 @@ export default function App() {
             ref={fileInputRef}
             type="file"
           />
-          <button className="primary-button" disabled={isParsing} onClick={() => fileInputRef.current?.click()}>
+          <button
+            className="primary-button"
+            disabled={isParsing}
+            onClick={() => fileInputRef.current?.click()}
+            type="button"
+          >
             {isParsing ? <Loader2 aria-hidden="true" className="spin" size={16} /> : <Upload aria-hidden="true" size={16} />}
             <span>{isParsing ? 'Reading CSV...' : 'Choose CSV'}</span>
           </button>
@@ -633,7 +674,7 @@ export default function App() {
               {cleanerApi.loading && <Loader2 aria-hidden="true" className="spin" size={13} />}
               {!cleanerApi.loading && cleanerApi.available && <CheckCircle2 aria-hidden="true" size={13} />}
               {!cleanerApi.loading && !cleanerApi.available && <WifiOff aria-hidden="true" size={13} />}
-              {cleanerApi.loading ? 'Checking API' : cleanerApi.available ? 'API ready' : 'API offline'}
+              {cleanerApi.loading ? 'Checking' : cleanerApi.available ? 'Ready' : 'Offline'}
             </span>
           </div>
 
@@ -681,6 +722,7 @@ export default function App() {
             className="secondary-button"
             disabled={!selectedFile || !cleanerApi.available || isCleaning || !hasCleanOutput}
             onClick={handleClean}
+            type="button"
           >
             {isCleaning ? <Loader2 aria-hidden="true" className="spin" size={16} /> : <Download aria-hidden="true" size={16} />}
             <span>{isCleaning ? 'Cleaning...' : 'Clean & Download'}</span>
@@ -710,7 +752,7 @@ export default function App() {
           <>
             <section className="stats-grid">
               <Stat label="Mappable rows" value={parsedCsv.mappedRows.toLocaleString()} />
-              <Stat label="Devices" value={parsedCsv.devices.length.toLocaleString()} />
+              <Stat label="BSSIDs" value={parsedCsv.devices.length.toLocaleString()} />
               <Stat label="Skipped rows" value={parsedCsv.skippedRows.toLocaleString()} />
             </section>
 
@@ -732,7 +774,7 @@ export default function App() {
             </section>
 
             <section className="panel">
-              <label className="field-label" htmlFor="device-select">Device (BSSID)</label>
+              <label className="field-label" htmlFor="device-select">BSSID</label>
               <select
                 id="device-select"
                 value={selectedDeviceId}
@@ -765,7 +807,7 @@ export default function App() {
 
             <section className="panel sightings-panel">
               <div className="section-heading">
-                <h2>Sightings</h2>
+                <h2>Scanner Sightings</h2>
                 <span>{deviceMapData.points.length.toLocaleString()}</span>
               </div>
               <div className="sighting-list">
@@ -774,15 +816,16 @@ export default function App() {
                     className={selectedPoint?.__row_number === point.__row_number ? 'sighting active' : 'sighting'}
                     key={point.__row_number}
                     onClick={() => setSelectedPoint(point)}
+                    type="button"
                   >
                     <strong>#{point.__sequence}</strong>
                     <span>{point.__event_time || 'Unknown time'}</span>
-                    <small>{point.__latitude.toFixed(6)}, {point.__longitude.toFixed(6)}</small>
+                    <small>{scannerSightingMeta(point)}</small>
                   </button>
                 ))}
               </div>
               {deviceMapData.points.length > visiblePoints.length && (
-                <p className="list-note">Showing first {visiblePoints.length} sightings. Kepler shows all mapped points.</p>
+                <p className="list-note">Showing first {visiblePoints.length} sightings. Kepler shows all scanner points.</p>
               )}
             </section>
           </>
@@ -804,19 +847,17 @@ export default function App() {
           {!parsedCsv && (
             <div className="map-empty">
               <h2>No CSV loaded</h2>
-              <p>Choose a raw Shadow View export to display device points and the time-ordered trail.</p>
+              <p>Load a Shadow View CSV to map scanner detections.</p>
             </div>
           )}
         </div>
 
         <div className="details-card">
           <div className="section-heading">
-            <h2>Point Details</h2>
+            <h2>Sighting Details</h2>
             <span>{selectedPoint ? `Row ${selectedPoint.__row_number}` : 'No selection'}</span>
           </div>
-          <p className="details-hint">
-            Kepler shows the same row data when a mapped point is clicked. This panel keeps the selected sighting visible.
-          </p>
+          <p className="details-hint">Selected sighting values from the original CSV.</p>
           <DetailTable row={selectedPoint} />
         </div>
       </section>

@@ -116,9 +116,11 @@ computed = "unique_mgrs_count"
 header = "MGRS Unique Count"
 ```
 
-`unique_mgrs_count` counts unique non-empty MGRS locations for each grouped BSSID.
-Locations within the configured distance threshold count as the same location, so
-minor MGRS differences do not inflate the count.
+`unique_mgrs_count` counts unique valid MGRS locations for each grouped BSSID.
+Blank or invalid MGRS values are ignored. Locations within the configured
+distance threshold count as the same location, so minor MGRS differences do not
+inflate the count. A moving path still creates a new unique location once it is
+outside the threshold from the first location in that bucket.
 
 ```toml
 [mgrs_unique_count]

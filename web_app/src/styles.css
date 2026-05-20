@@ -1,17 +1,17 @@
 :root {
-  color-scheme: light dark;
-  --bg: light-dark(#eef2f7, #08111f);
-  --panel: light-dark(#ffffff, #111827);
-  --panel-soft: light-dark(#f8fafc, #162235);
-  --text: light-dark(#101828, #e5edf8);
-  --muted: light-dark(#667085, #9aa9bd);
-  --border: light-dark(#d6dde8, #26364f);
-  --accent: light-dark(#047da3, #67e8f9);
-  --accent-strong: light-dark(#065f7d, #22d3ee);
-  --success: light-dark(#087443, #32d583);
-  --warning: light-dark(#b54708, #fdb022);
-  --danger: light-dark(#b42318, #f97066);
-  --shadow: light-dark(0 24px 70px rgba(16, 24, 40, 0.16), 0 24px 70px rgba(0, 0, 0, 0.38));
+  color-scheme: light;
+  --bg: #eef2f7;
+  --panel: #ffffff;
+  --panel-soft: #f8fafc;
+  --text: #101828;
+  --muted: #667085;
+  --border: #d6dde8;
+  --accent: #047da3;
+  --accent-strong: #065f7d;
+  --success: #087443;
+  --warning: #b54708;
+  --danger: #b42318;
+  --shadow: 0 24px 70px rgba(16, 24, 40, 0.16);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
@@ -130,7 +130,7 @@ h2 {
   border: 0;
   border-radius: 8px;
   background: var(--accent);
-  color: light-dark(#ffffff, #03131a);
+  color: #ffffff;
   cursor: pointer;
   font-weight: 700;
   padding: 10px 16px;
@@ -139,8 +139,8 @@ h2 {
 
 .secondary-button {
   width: 100%;
-  background: light-dark(#101828, #e5edf8);
-  color: light-dark(#ffffff, #101828);
+  background: #101828;
+  color: #ffffff;
 }
 
 .tertiary-button {
@@ -154,8 +154,10 @@ h2 {
 .primary-button:disabled,
 .secondary-button:disabled,
 .tertiary-button:disabled {
-  cursor: wait;
-  opacity: 0.68;
+  background: #d8dee8;
+  color: #667085;
+  cursor: not-allowed;
+  opacity: 1;
 }
 
 .primary-button svg,
@@ -514,6 +516,30 @@ select {
   margin-top: 12px;
 }
 
+.settings-grid.compact {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 8px;
+}
+
+.criteria-basics {
+  margin-top: 12px;
+}
+
+.criteria-group {
+  min-width: 0;
+  margin: 12px 0 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+  padding: 12px 0 0;
+}
+
+.criteria-group legend {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 800;
+  padding: 0 8px 0 0;
+}
+
 .setting-field {
   display: grid;
   gap: 5px;
@@ -713,7 +739,8 @@ select {
 
   .stats-grid,
   .detail-table,
-  .settings-grid {
+  .settings-grid,
+  .settings-grid.compact {
     grid-template-columns: 1fr;
   }
 }

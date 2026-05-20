@@ -12,6 +12,7 @@ export const SATELLITE_MAP_STYLE = {
         'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
       ],
       tileSize: 256,
+      maxzoom: 18,
       attribution: 'Tiles © Esri'
     }
   },
@@ -21,7 +22,7 @@ export const SATELLITE_MAP_STYLE = {
       type: 'raster',
       source: 'esri-satellite-tiles',
       minzoom: 0,
-      maxzoom: 19
+      maxzoom: 24
     }
   ]
 };
@@ -56,8 +57,18 @@ function boundsFor(points) {
     };
   }
 
-  const latitudes = points.map((point) => point.__latitude);
-  const longitudes = points.map((point) => point.__longitude);
+  const latitudes = [];
+  const longitudes = [];
+  for (const point of points) {
+    const radius = Number(point.__detection_radius_meters);
+    const latitudePadding = Number.isFinite(radius) && radius > 0 ? radius / 111320 : 0;
+    const longitudePadding =
+      latitudePadding / Math.max(0.2, Math.cos((point.__latitude * Math.PI) / 180));
+
+    latitudes.push(point.__latitude - latitudePadding, point.__latitude + latitudePadding);
+    longitudes.push(point.__longitude - longitudePadding, point.__longitude + longitudePadding);
+  }
+
   const minLat = Math.min(...latitudes);
   const maxLat = Math.max(...latitudes);
   const minLon = Math.min(...longitudes);
@@ -90,7 +101,7 @@ function boundsFor(points) {
 
 function tooltipFields(fields) {
   return fields
-    .filter((field) => !['__latitude', '__longitude', '__lat0', '__lng0', '__lat1', '__lng1'].includes(field.name))
+    .filter((field) => !field.name.startsWith('__'))
     .slice(0, 80)
     .map((field) => ({name: field.name, format: null}));
 }
@@ -125,23 +136,50 @@ function processRows(rows) {
   };
 }
 
+function detectionRadiusConfig(pointData, points) {
+  const radiusField = pointData.fields.find((field) => field.name === '__detection_radius_meters');
+  const radii = points
+    .map((point) => Number(point.__detection_radius_meters))
+    .filter((radius) => Number.isFinite(radius) && radius >= 0);
+
+  if (!radiusField || !radii.length) {
+    return {
+      hasDetectionRadius: false,
+      sizeConfig: {}
+    };
+  }
+
+  return {
+    hasDetectionRadius: true,
+    sizeConfig: {
+      sizeField: {
+        name: radiusField.name,
+        type: radiusField.type
+      },
+      sizeScale: 'linear',
+      sizeDomain: [0, Math.max(1, ...radii)]
+    }
+  };
+}
+
 export function createKeplerPayload({points, segments, deviceId, mapStyleId = DEFAULT_MAP_STYLE_ID}) {
   const pointData = processRows(points);
   const segmentData = processRows(segments.length ? segments : [emptySegment(deviceId)]);
   const center = boundsFor(points);
+  const {hasDetectionRadius, sizeConfig} = detectionRadiusConfig(pointData, points);
 
   return {
     datasets: [
       {
         info: {
-          label: `Sightings: ${deviceId}`,
+          label: `Scanner sightings: ${deviceId}`,
           id: POINTS_DATASET_ID
         },
         data: pointData
       },
       {
         info: {
-          label: `Trail: ${deviceId}`,
+          label: `Scanner trail: ${deviceId}`,
           id: TRAIL_DATASET_ID
         },
         data: segmentData
@@ -175,11 +213,38 @@ export function createKeplerPayload({points, segments, deviceId, mapStyleId = DE
       visState: {
         layers: [
           {
+            id: 'shadow-view-detection-radius',
+            type: 'point',
+            config: {
+              dataId: POINTS_DATASET_ID,
+              label: 'Detection radius',
+              color: [76, 201, 240],
+              columns: {
+                lat: '__latitude',
+                lng: '__longitude',
+                altitude: null
+              },
+              isVisible: hasDetectionRadius,
+              ...sizeConfig,
+              visConfig: {
+                radius: 1,
+                fixedRadius: true,
+                opacity: 0.62,
+                outline: true,
+                thickness: 2,
+                strokeColor: [76, 201, 240],
+                filled: false,
+                allowHover: false
+              }
+            },
+            visualChannels: {}
+          },
+          {
             id: 'shadow-view-points',
             type: 'point',
             config: {
               dataId: POINTS_DATASET_ID,
-              label: 'Device sightings',
+              label: 'Scanner locations',
               color: [76, 201, 240],
               columns: {
                 lat: '__latitude',
@@ -210,7 +275,7 @@ export function createKeplerPayload({points, segments, deviceId, mapStyleId = DE
             type: 'line',
             config: {
               dataId: TRAIL_DATASET_ID,
-              label: 'Time trail',
+              label: 'Scanner trail',
               color: [255, 215, 0],
               columns: {
                 lat0: '__lat0',
@@ -233,7 +298,7 @@ export function createKeplerPayload({points, segments, deviceId, mapStyleId = DE
             }
           }
         ],
-        layerOrder: ['shadow-view-trail', 'shadow-view-points'],
+        layerOrder: ['shadow-view-detection-radius', 'shadow-view-trail', 'shadow-view-points'],
         interactionConfig: {
           tooltip: {
             enabled: true,
@@ -250,8 +315,8 @@ export function createKeplerPayload({points, segments, deviceId, mapStyleId = DE
       }
     },
     info: {
-      title: 'Shadow View Device Trail',
-      description: `Selected device: ${deviceId}`
+      title: 'Shadow View Scanner Trail',
+      description: `Selected BSSID: ${deviceId}`
     }
   };
 }

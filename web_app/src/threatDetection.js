@@ -181,28 +181,30 @@ function haversineMeters(first, second) {
 
 function clusterPoints(points, sameLocationMeters) {
   const clusters = [];
+  const sortedPoints = points.slice().sort((first, second) => {
+    return (
+      first.zone - second.zone ||
+      first.hemisphere.localeCompare(second.hemisphere) ||
+      first.easting - second.easting ||
+      first.northing - second.northing ||
+      first.raw.localeCompare(second.raw)
+    );
+  });
 
-  for (const point of points) {
-    const matchingIndexes = clusters
-      .map((cluster, index) =>
-        cluster.some((existing) => mgrsDistanceMeters(point, existing) <= sameLocationMeters) ? index : -1
-      )
-      .filter((index) => index >= 0);
-
-    if (!matchingIndexes.length) {
-      clusters.push([point]);
+  for (const point of sortedPoints) {
+    const cluster = clusters.find((candidate) => mgrsDistanceMeters(point, candidate.anchor) <= sameLocationMeters);
+    if (cluster) {
+      cluster.points.push(point);
       continue;
     }
 
-    const targetIndex = matchingIndexes[0];
-    clusters[targetIndex].push(point);
-    for (const index of matchingIndexes.slice(1).reverse()) {
-      clusters[targetIndex].push(...clusters[index]);
-      clusters.splice(index, 1);
-    }
+    clusters.push({
+      anchor: point,
+      points: [point]
+    });
   }
 
-  return clusters;
+  return clusters.map((cluster) => cluster.points);
 }
 
 function maxPairDistanceMeters(points) {
@@ -234,22 +236,24 @@ function distinctValues(values) {
 }
 
 function evaluateSeverity(metrics, config) {
+  const scannerLocationCount = metrics.scannerLocationCount ?? metrics.uniqueLocationCount;
+  const scannerPathSpanMeters = metrics.scannerPathSpanMeters ?? metrics.pathSpanMeters;
   const checks = {
     high:
       metrics.scanCount >= config.minScansHigh &&
       metrics.durationMinutes >= config.minDurationMinutesHigh &&
-      metrics.uniqueLocationCount >= config.minUniqueLocationsHigh &&
-      metrics.pathSpanMeters >= config.minPathSpanMetersHigh,
+      scannerLocationCount >= config.minUniqueLocationsHigh &&
+      scannerPathSpanMeters >= config.minPathSpanMetersHigh,
     medium:
       metrics.scanCount >= config.minScansMedium &&
       metrics.durationMinutes >= config.minDurationMinutesMedium &&
-      metrics.uniqueLocationCount >= config.minUniqueLocationsMedium &&
-      metrics.pathSpanMeters >= config.minPathSpanMetersMedium,
+      scannerLocationCount >= config.minUniqueLocationsMedium &&
+      scannerPathSpanMeters >= config.minPathSpanMetersMedium,
     low:
       metrics.scanCount >= config.minScansLow &&
       metrics.durationMinutes >= config.minDurationMinutesLow &&
-      metrics.uniqueLocationCount >= config.minUniqueLocationsLow &&
-      metrics.pathSpanMeters >= config.minPathSpanMetersLow
+      scannerLocationCount >= config.minUniqueLocationsLow &&
+      scannerPathSpanMeters >= config.minPathSpanMetersLow
   };
 
   if (checks.high) {
@@ -285,12 +289,23 @@ function formatMinutes(value) {
 }
 
 function buildReason(metrics) {
-  const accuracyCopy =
-    metrics.medianAccuracyMeters === null ? 'accuracy unavailable' : `median accuracy ${formatMeters(metrics.medianAccuracyMeters)}`;
+  const locationCopy = `${metrics.scannerLocationCount} scanner location${
+    metrics.scannerLocationCount === 1 ? '' : 's'
+  }`;
+  const radiusCopy =
+    metrics.medianDetectionRadiusMeters === null
+      ? 'detection radius unavailable'
+      : `median detection radius ${formatMeters(metrics.medianDetectionRadiusMeters)}`;
+  const ignoredCopy =
+    metrics.ignoredScanCount > 0
+      ? ` ${metrics.ignoredScanCount} scan${
+          metrics.ignoredScanCount === 1 ? '' : 's'
+        } outside radius or MGRS criteria ignored.`
+      : '';
 
-  return `Seen ${metrics.scanCount} times across ${metrics.uniqueLocationCount} locations over ${formatMinutes(
+  return `Detected ${metrics.scanCount} times across ${locationCopy} over ${formatMinutes(
     metrics.durationMinutes
-  )}, spanning ${formatMeters(metrics.pathSpanMeters)} with ${accuracyCopy}.`;
+  )}. Scanner path spanned ${formatMeters(metrics.scannerPathSpanMeters)} with ${radiusCopy}.${ignoredCopy}`;
 }
 
 export function analyzeThreats(observations, config) {
@@ -316,11 +331,19 @@ export function analyzeThreats(observations, config) {
       .map((row) => ({
         row,
         point: parseMgrs(row.mgrs),
-        accuracy: row.accuracy === null || row.accuracy === undefined ? NaN : Number(row.accuracy)
+        detectionRadius:
+          row.detectionRadius === null || row.detectionRadius === undefined
+            ? row.accuracy === null || row.accuracy === undefined
+              ? NaN
+              : Number(row.accuracy)
+            : Number(row.detectionRadius)
       }))
       .filter(
-        ({point, accuracy}) =>
-          point !== null && Number.isFinite(accuracy) && accuracy >= 0 && accuracy <= config.maxAccuracyMeters
+        ({point, detectionRadius}) =>
+          point !== null &&
+          Number.isFinite(detectionRadius) &&
+          detectionRadius >= 0 &&
+          detectionRadius <= (config.maxDetectionRadiusMeters ?? config.maxAccuracyMeters)
       );
 
     if (!qualifiedRows.length) {
@@ -333,14 +356,19 @@ export function analyzeThreats(observations, config) {
     const lastTimeMs = timeValues.length ? Math.max(...timeValues) : null;
     const durationMinutes = firstTimeMs !== null && lastTimeMs !== null ? (lastTimeMs - firstTimeMs) / 60000 : 0;
     const clusters = clusterPoints(points, config.sameLocationMeters);
+    const scannerPathSpanMeters = maxPairDistanceMeters(points);
+    const medianDetectionRadiusMeters = median(qualifiedRows.map(({detectionRadius}) => detectionRadius));
     const metrics = {
       scanCount: qualifiedRows.length,
       rawScanCount: rows.length,
       ignoredScanCount: rows.length - qualifiedRows.length,
+      scannerLocationCount: clusters.length,
       uniqueLocationCount: clusters.length,
       durationMinutes,
-      pathSpanMeters: maxPairDistanceMeters(points),
-      medianAccuracyMeters: median(qualifiedRows.map(({accuracy}) => accuracy)),
+      scannerPathSpanMeters,
+      pathSpanMeters: scannerPathSpanMeters,
+      medianDetectionRadiusMeters,
+      medianAccuracyMeters: medianDetectionRadiusMeters,
       firstTimeMs,
       lastTimeMs
     };

@@ -5,6 +5,7 @@ const reducers = combineReducers({
   keplerGl: keplerGlReducer.initialState({
     uiState: {
       readOnly: false,
+      activeSidePanel: '',
       currentModal: null
     }
   })

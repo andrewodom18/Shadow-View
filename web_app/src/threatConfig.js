@@ -1,6 +1,7 @@
 export const DEFAULT_THREAT_CONFIG = Object.freeze({
   enabled: true,
   sameLocationMeters: 50,
+  maxDetectionRadiusMeters: 100,
   maxAccuracyMeters: 100,
   minScansLow: 3,
   minDurationMinutesLow: 5,
@@ -22,6 +23,10 @@ const STORAGE_KEY = 'shadow-view-threat-config-v1';
 const CONFIG_URL = '/threat-detection-config.json';
 const SEVERITIES = new Set(['low', 'medium', 'high']);
 
+function hasOwn(object, key) {
+  return Object.prototype.hasOwnProperty.call(object, key);
+}
+
 function toPositiveNumber(value, fallback, {allowZero = false} = {}) {
   const number = Number(value);
   if (!Number.isFinite(number)) {
@@ -38,13 +43,24 @@ function toPositiveInteger(value, fallback, {allowZero = false} = {}) {
 }
 
 export function normalizeThreatConfig(rawConfig = {}) {
-  const merged = {...DEFAULT_THREAT_CONFIG, ...rawConfig};
+  const sourceConfig = rawConfig && typeof rawConfig === 'object' ? rawConfig : {};
+  const merged = {...DEFAULT_THREAT_CONFIG, ...sourceConfig};
   const notifyAtSeverity = String(merged.notifyAtSeverity || '').toLowerCase();
+  const radiusSource = hasOwn(sourceConfig, 'maxDetectionRadiusMeters')
+    ? sourceConfig.maxDetectionRadiusMeters
+    : hasOwn(sourceConfig, 'maxAccuracyMeters')
+      ? sourceConfig.maxAccuracyMeters
+      : DEFAULT_THREAT_CONFIG.maxDetectionRadiusMeters;
+  const maxDetectionRadiusMeters = toPositiveNumber(
+    radiusSource,
+    DEFAULT_THREAT_CONFIG.maxDetectionRadiusMeters
+  );
 
   return {
     enabled: Boolean(merged.enabled),
     sameLocationMeters: toPositiveNumber(merged.sameLocationMeters, DEFAULT_THREAT_CONFIG.sameLocationMeters),
-    maxAccuracyMeters: toPositiveNumber(merged.maxAccuracyMeters, DEFAULT_THREAT_CONFIG.maxAccuracyMeters),
+    maxDetectionRadiusMeters,
+    maxAccuracyMeters: maxDetectionRadiusMeters,
     minScansLow: toPositiveInteger(merged.minScansLow, DEFAULT_THREAT_CONFIG.minScansLow),
     minDurationMinutesLow: toPositiveNumber(
       merged.minDurationMinutesLow,
@@ -122,10 +138,14 @@ export async function loadThreatConfig(signal) {
   const fileConfig = await readFileThreatConfig(signal);
   const baseConfig = normalizeThreatConfig(fileConfig);
   const userConfig = readStoredThreatConfig();
+  const mergedConfig = {...baseConfig, ...userConfig};
+  if (hasOwn(userConfig, 'maxAccuracyMeters') && !hasOwn(userConfig, 'maxDetectionRadiusMeters')) {
+    mergedConfig.maxDetectionRadiusMeters = userConfig.maxAccuracyMeters;
+  }
 
   return {
     baseConfig,
-    config: normalizeThreatConfig({...baseConfig, ...userConfig})
+    config: normalizeThreatConfig(mergedConfig)
   };
 }
 

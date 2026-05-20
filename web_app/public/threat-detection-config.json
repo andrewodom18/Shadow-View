@@ -1,7 +1,7 @@
 {
   "enabled": true,
   "sameLocationMeters": 50,
-  "maxAccuracyMeters": 100,
+  "maxDetectionRadiusMeters": 100,
   "minScansLow": 3,
   "minDurationMinutesLow": 5,
   "minUniqueLocationsLow": 1,

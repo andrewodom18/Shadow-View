@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 
 import {parseShadowViewCsvText, prepareDeviceMapData} from '../src/csvShadowView.js';
 import {CUSTOM_MAP_STYLES, DEFAULT_MAP_STYLE_ID, POINTS_DATASET_ID, TRAIL_DATASET_ID, createKeplerPayload} from '../src/keplerConfig.js';
-import {DEFAULT_THREAT_CONFIG} from '../src/threatConfig.js';
+import {DEFAULT_THREAT_CONFIG, normalizeThreatConfig} from '../src/threatConfig.js';
 import {analyzeThreats} from '../src/threatDetection.js';
 
 const csv = `Document ID,Display Name,City,Clazz,Country,Event Time,Last Updated,Location (Lat/Lon),Location (MGRS),Source,Super Type,Type,_id,_index,Accuracy,Accuracy,Altitude,Altitude,Bandwidth,Bssid,Bssid,Channel,Channel,Device Name,Device Name,Device Time,Device Time,Ssid,Ssid,Latitude,Latitude,Longitude,Longitude
@@ -27,11 +27,35 @@ assert.equal(mapData.points[0]['Accuracy (2)'], '');
 const payload = createKeplerPayload({...mapData, deviceId: 'aa:bb:cc:00:00:01'});
 assert.equal(payload.datasets[0].info.id, POINTS_DATASET_ID);
 assert.equal(payload.datasets[1].info.id, TRAIL_DATASET_ID);
-assert.equal(payload.config.visState.layers.length, 2);
-assert.equal(payload.config.visState.layers[0].config.columns.lat, '__latitude');
-assert.equal(payload.config.visState.layers[1].config.columns.lat0, '__lat0');
+assert.ok(payload.bounds[0] < Math.min(...mapData.points.map((point) => point.__longitude)));
+assert.ok(payload.bounds[1] < Math.min(...mapData.points.map((point) => point.__latitude)));
+assert.ok(payload.bounds[2] > Math.max(...mapData.points.map((point) => point.__longitude)));
+assert.ok(payload.bounds[3] > Math.max(...mapData.points.map((point) => point.__latitude)));
+assert.equal(payload.config.visState.layers.length, 3);
+assert.equal(payload.config.visState.layers[0].config.label, 'Detection radius');
+assert.equal(payload.config.visState.layers[0].config.sizeField.name, '__detection_radius_meters');
+assert.equal(payload.config.visState.layers[1].config.columns.lat, '__latitude');
+assert.equal(payload.config.visState.layers[2].config.columns.lat0, '__lat0');
+assert.deepEqual(payload.config.visState.layerOrder, [
+  'shadow-view-detection-radius',
+  'shadow-view-trail',
+  'shadow-view-points'
+]);
+assert.ok(
+  payload.config.visState.interactionConfig.tooltip.config.fieldsToShow[POINTS_DATASET_ID].every(
+    (field) => !field.name.startsWith('__')
+  )
+);
 assert.equal(payload.config.mapStyle.styleType, DEFAULT_MAP_STYLE_ID);
-assert.ok(CUSTOM_MAP_STYLES.find((style) => style.id === 'shadow_view_satellite'));
+const mapStyleIds = new Set(CUSTOM_MAP_STYLES.map((style) => style.id));
+assert.equal(mapStyleIds.size, CUSTOM_MAP_STYLES.length);
+assert.ok(mapStyleIds.has(DEFAULT_MAP_STYLE_ID));
+assert.ok(mapStyleIds.has('shadow_view_satellite'));
+assert.ok(mapStyleIds.has('shadow_view_dark'));
+assert.equal(
+  CUSTOM_MAP_STYLES.find((style) => style.id === 'shadow_view_satellite').style.sources['esri-satellite-tiles'].maxzoom,
+  18
+);
 
 const threatCsv = `BSSID,SSID,Accuracy,Event Time,Device Name,MGRS,Latitude,Longitude
 aa:bb:cc:00:00:99,FOLLOWER,20,2026-04-30 12:00:00,scanner,36RXU1000010000,29.9500,34.9300
@@ -40,12 +64,30 @@ aa:bb:cc:00:00:99,FOLLOWER,20,2026-04-30 12:20:00,scanner,36RXU1020010000,29.950
 aa:bb:cc:00:00:99,FOLLOWER,20,2026-04-30 12:30:00,scanner,36RXU1030010000,29.9503,34.9303
 aa:bb:cc:00:00:99,FOLLOWER,20,2026-04-30 12:40:00,scanner,36RXU1040010000,29.9504,34.9304
 aa:bb:cc:00:00:99,FOLLOWER,20,2026-04-30 12:50:00,scanner,36RXU1050010000,29.9505,34.9305
+aa:bb:cc:00:00:99,FOLLOWER,150,2026-04-30 13:00:00,scanner,36RXU1060010000,29.9506,34.9306
 aa:bb:cc:00:00:10,STATIC,20,2026-04-30 12:00:00,scanner,NOT-MGRS,29.9500,34.9300`;
 const threatParsed = parseShadowViewCsvText(threatCsv, 'threat-format.csv');
+assert.deepEqual(threatParsed.devices.map((device) => device.id), ['aa:bb:cc:00:00:99', 'aa:bb:cc:00:00:10']);
+assert.ok(!threatParsed.devices.some((device) => device.id === 'scanner'));
 const threats = analyzeThreats(threatParsed.observations, DEFAULT_THREAT_CONFIG);
 assert.equal(threats.length, 1);
 assert.equal(threats[0].bssid, 'aa:bb:cc:00:00:99');
 assert.equal(threats[0].severity, 'high');
-assert.equal(threats[0].metrics.ignoredScanCount, 0);
+assert.equal(threats[0].metrics.ignoredScanCount, 1);
+assert.equal(threats[0].metrics.scannerLocationCount, 6);
+assert.equal(threats[0].metrics.medianDetectionRadiusMeters, 20);
+assert.match(threats[0].reason, /scanner location/);
+assert.match(threats[0].reason, /detection radius/);
+assert.match(threats[0].reason, /outside radius or MGRS criteria ignored/);
+assert.equal(normalizeThreatConfig({maxAccuracyMeters: 42}).maxDetectionRadiusMeters, 42);
+assert.equal(normalizeThreatConfig(null).maxDetectionRadiusMeters, DEFAULT_THREAT_CONFIG.maxDetectionRadiusMeters);
+
+const chainCsv = `BSSID,SSID,Accuracy,Event Time,Device Name,MGRS,Latitude,Longitude
+aa:bb:cc:00:00:88,CHAIN,20,2026-04-30 12:00:00,scanner,36RXU1000010000,29.9500,34.9300
+aa:bb:cc:00:00:88,CHAIN,20,2026-04-30 12:10:00,scanner,36RXU1004010000,29.9501,34.9301
+aa:bb:cc:00:00:88,CHAIN,20,2026-04-30 12:20:00,scanner,36RXU1008010000,29.9502,34.9302`;
+const chainParsed = parseShadowViewCsvText(chainCsv, 'chain-format.csv');
+const chainThreats = analyzeThreats(chainParsed.observations, DEFAULT_THREAT_CONFIG);
+assert.equal(chainThreats[0].metrics.scannerLocationCount, 2);
 
 console.log('Shadow View map smoke test passed.');

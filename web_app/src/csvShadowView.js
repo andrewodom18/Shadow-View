@@ -6,7 +6,14 @@ const LAT_ALIASES = ['latitude', 'lat'];
 const LON_ALIASES = ['longitude', 'lon', 'lng'];
 const LAT_LON_ALIASES = ['location (lat/lon)', 'location lat/lon', 'lat/lon'];
 const MGRS_ALIASES = ['mgrs', 'location (mgrs)'];
-const ACCURACY_ALIASES = ['accuracy', 'accuracy meters'];
+const ACCURACY_ALIASES = [
+  'accuracy',
+  'accuracy meters',
+  'detection radius',
+  'detection radius meters',
+  'range',
+  'range meters'
+];
 const SSID_ALIASES = ['ssid', 'ssid (2)', 'network name'];
 
 export function normalizeHeader(value) {
@@ -219,7 +226,8 @@ export function prepareDeviceMapData(observations, deviceId) {
       __event_time: observation.timeRaw,
       __event_time_iso: Number.isFinite(observation.timeMs) ? new Date(observation.timeMs).toISOString() : '',
       __sequence: index + 1,
-      __mgrs: observation.mgrs
+      __mgrs: observation.mgrs,
+      __detection_radius_meters: observation.detectionRadius
     }));
 
   const segments = [];
@@ -291,6 +299,7 @@ function ingestRows(rows, state) {
       timeMs,
       mgrs: String(valueFromHeaders(row, state.columns.mgrsHeaders)).trim(),
       accuracy: parseNumber(valueFromHeaders(row, state.columns.accuracyHeaders)),
+      detectionRadius: parseNumber(valueFromHeaders(row, state.columns.accuracyHeaders)),
       ssid: String(valueFromHeaders(row, state.columns.ssidHeaders)).trim(),
       original: row
     });
