@@ -141,7 +141,7 @@ class ShadowViewCleanerTests(unittest.TestCase):
                     real_export_row(
                         document_id="3",
                         event_time="2026-04-30 16:03:53.693291",
-                        mgrs="36RXU8673315098",
+                        mgrs="36RXU8680015097",
                         accuracy="12",
                         bssid="aa:bb:cc:00:00:01",
                         device_name="Field Sensor",
@@ -159,7 +159,7 @@ class ShadowViewCleanerTests(unittest.TestCase):
                     real_export_row(
                         document_id="5",
                         event_time="2026-04-30 16:23:53.693291",
-                        mgrs="36RXU0000000002",
+                        mgrs="36RXU0006000001",
                         accuracy="6",
                         bssid="dd:ee:ff:00:00:02",
                         device_name="Mobile AP",
@@ -168,7 +168,7 @@ class ShadowViewCleanerTests(unittest.TestCase):
                     real_export_row(
                         document_id="6",
                         event_time="2026-04-30 16:33:53.693291",
-                        mgrs="36RXU0000000003",
+                        mgrs="36RXU0012000001",
                         accuracy="7",
                         bssid="dd:ee:ff:00:00:02",
                         device_name="Mobile AP",
@@ -242,6 +242,112 @@ class ShadowViewCleanerTests(unittest.TestCase):
             third = rows[2]
             self.assertEqual(third["BSSID"], "11:22:33:44:55:66")
             self.assertEqual(third["Accuracy"], "9")
+
+    def test_mgrs_unique_count_collapses_locations_within_default_distance(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            input_csv = temp_path / "real_format.csv"
+            output_csv = temp_path / "cleaned.csv"
+
+            write_real_format_csv(
+                input_csv,
+                [
+                    real_export_row(
+                        document_id="1",
+                        event_time="2026-04-30 15:00:00",
+                        mgrs="36RXU1000010000",
+                        accuracy="10",
+                        bssid="aa:bb:cc:00:00:01",
+                        device_name="Near Device",
+                        ssid="NEAR",
+                    ),
+                    real_export_row(
+                        document_id="2",
+                        event_time="2026-04-30 15:10:00",
+                        mgrs="36RXU1004010000",
+                        accuracy="10",
+                        bssid="aa:bb:cc:00:00:01",
+                        device_name="Near Device",
+                        ssid="NEAR",
+                    ),
+                    real_export_row(
+                        document_id="3",
+                        event_time="2026-04-30 15:20:00",
+                        mgrs="36RXU2000020000",
+                        accuracy="10",
+                        bssid="dd:ee:ff:00:00:02",
+                        device_name="Far Device",
+                        ssid="FAR",
+                    ),
+                    real_export_row(
+                        document_id="4",
+                        event_time="2026-04-30 15:30:00",
+                        mgrs="36RXU2006020000",
+                        accuracy="10",
+                        bssid="dd:ee:ff:00:00:02",
+                        device_name="Far Device",
+                        ssid="FAR",
+                    ),
+                ],
+            )
+
+            clean_csv(input_csv, output_csv, DEFAULT_CONFIG, None)
+
+            with output_csv.open(newline="", encoding="utf-8") as csv_file:
+                rows = {
+                    row["BSSID"]: row
+                    for row in csv.DictReader(csv_file)
+                }
+
+            self.assertEqual(rows["aa:bb:cc:00:00:01"]["MGRS Unique Count"], "1")
+            self.assertEqual(rows["dd:ee:ff:00:00:02"]["MGRS Unique Count"], "2")
+
+    def test_mgrs_unique_count_uses_configured_distance_threshold(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            input_csv = temp_path / "real_format.csv"
+            output_csv = temp_path / "cleaned.csv"
+            config_path = temp_path / "co_traveler.toml"
+            config_path.write_text(
+                DEFAULT_CONFIG.read_text(encoding="utf-8").replace(
+                    "distance_threshold_meters = 50",
+                    "distance_threshold_meters = 100",
+                ),
+                encoding="utf-8",
+            )
+
+            write_real_format_csv(
+                input_csv,
+                [
+                    real_export_row(
+                        document_id="1",
+                        event_time="2026-04-30 15:00:00",
+                        mgrs="36RXU2000020000",
+                        accuracy="10",
+                        bssid="dd:ee:ff:00:00:02",
+                        device_name="Far Device",
+                        ssid="FAR",
+                    ),
+                    real_export_row(
+                        document_id="2",
+                        event_time="2026-04-30 15:30:00",
+                        mgrs="36RXU2006020000",
+                        accuracy="10",
+                        bssid="dd:ee:ff:00:00:02",
+                        device_name="Far Device",
+                        ssid="FAR",
+                    ),
+                ],
+            )
+
+            clean_csv(input_csv, output_csv, config_path, None)
+
+            with output_csv.open(newline="", encoding="utf-8") as csv_file:
+                rows = list(csv.DictReader(csv_file))
+
+            self.assertEqual(rows[0]["MGRS Unique Count"], "1")
 
     def test_cli_writes_csv_and_html_preview_for_real_export_shape(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

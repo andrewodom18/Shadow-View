@@ -4,3 +4,5 @@ output/
 data/
 web_app/node_modules/
 web_app/dist/
+.fallow/
+web_app/.fallow/

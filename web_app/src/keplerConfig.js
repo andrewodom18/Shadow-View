@@ -1,20 +1,51 @@
 export const POINTS_DATASET_ID = 'shadow_view_points';
 export const TRAIL_DATASET_ID = 'shadow_view_trail';
+export const DEFAULT_MAP_STYLE_ID = 'shadow_view_street';
 
-export const BLANK_MAP_STYLE = {
+export const SATELLITE_MAP_STYLE = {
   version: 8,
-  name: 'Shadow View Blank',
-  sources: {},
+  name: 'Satellite Imagery',
+  sources: {
+    'esri-satellite-tiles': {
+      type: 'raster',
+      tiles: [
+        'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+      ],
+      tileSize: 256,
+      attribution: 'Tiles © Esri'
+    }
+  },
   layers: [
     {
-      id: 'shadow-view-background',
-      type: 'background',
-      paint: {
-        'background-color': '#07111f'
-      }
+      id: 'satellite-tiles',
+      type: 'raster',
+      source: 'esri-satellite-tiles',
+      minzoom: 0,
+      maxzoom: 19
     }
   ]
 };
+
+export const CUSTOM_MAP_STYLES = [
+  {
+    id: DEFAULT_MAP_STYLE_ID,
+    label: 'Street',
+    url: 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json',
+    icon: 'https://a.basemaps.cartocdn.com/rastertiles/voyager/10/512/384.png'
+  },
+  {
+    id: 'shadow_view_satellite',
+    label: 'Satellite Imagery',
+    style: SATELLITE_MAP_STYLE,
+    icon: 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/10/384/512'
+  },
+  {
+    id: 'shadow_view_dark',
+    label: 'Dark',
+    url: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+    icon: 'https://a.basemaps.cartocdn.com/dark_all/10/512/384.png'
+  }
+];
 
 function boundsFor(points) {
   if (!points.length) {
@@ -94,7 +125,7 @@ function processRows(rows) {
   };
 }
 
-export function createKeplerPayload({points, segments, deviceId}) {
+export function createKeplerPayload({points, segments, deviceId, mapStyleId = DEFAULT_MAP_STYLE_ID}) {
   const pointData = processRows(points);
   const segmentData = processRows(segments.length ? segments : [emptySegment(deviceId)]);
   const center = boundsFor(points);
@@ -130,11 +161,11 @@ export function createKeplerPayload({points, segments, deviceId}) {
         dragRotate: false
       },
       mapStyle: {
-        styleType: 'shadow_view_blank',
+        styleType: mapStyleId,
         visibleLayerGroups: {
-          label: false,
-          road: false,
-          border: false,
+          label: true,
+          road: true,
+          border: true,
           building: false,
           water: true,
           land: true,

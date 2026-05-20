@@ -133,6 +133,30 @@ def multi_value_separator(config: dict[str, Any]) -> str:
     return separator
 
 
+def mgrs_unique_distance_meters(config: dict[str, Any]) -> float:
+    settings = config.get("mgrs_unique_count", {})
+    if not isinstance(settings, dict):
+        raise CleanerError("mgrs_unique_count must be a table.")
+
+    value = settings.get("distance_threshold_meters", 50)
+    if isinstance(value, bool):
+        raise CleanerError(
+            "mgrs_unique_count.distance_threshold_meters must be a positive number."
+        )
+    try:
+        distance = float(value)
+    except (TypeError, ValueError) as exc:
+        raise CleanerError(
+            "mgrs_unique_count.distance_threshold_meters must be a positive number."
+        ) from exc
+
+    if distance <= 0:
+        raise CleanerError(
+            "mgrs_unique_count.distance_threshold_meters must be greater than 0."
+        )
+    return distance
+
+
 def sort_enabled(config: dict[str, Any]) -> bool:
     sort_config = config.get("sort", {})
     if not isinstance(sort_config, dict):

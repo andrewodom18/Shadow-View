@@ -24,6 +24,10 @@ enabled = true
 key = "bssid"
 multi_value_separator = " | "
 
+[mgrs_unique_count]
+# MGRS locations within this distance count as the same device location.
+distance_threshold_meters = 50
+
 [[output_columns]]
 source = "bssid"
 header = "BSSID"

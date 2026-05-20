@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
+    "api": "cd .. && python3 -m shadow_view.web_server",
     "build": "node --max-old-space-size=8192 ./node_modules/vite/bin/vite.js build",
     "preview": "vite preview --host 127.0.0.1",
     "test": "node scripts/smoke-test.mjs"
@@ -13,6 +14,9 @@
     "@kepler.gl/actions": "^3.3.0-alpha.0",
     "@kepler.gl/components": "^3.3.0-alpha.0",
     "@kepler.gl/reducers": "^3.3.0-alpha.0",
+    "assert": "^2.1.0",
+    "events": "^3.3.0",
+    "lucide-react": "^1.16.0",
     "papaparse": "^5.5.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -24,7 +28,7 @@
     "@vitejs/plugin-react": "^6.0.2",
     "vite": "^8.0.13"
   },
-    "overrides": {
+  "overrides": {
     "@deck.gl-community/editable-layers": "9.3.2",
     "@deck.gl-community/layers": "9.3.2",
     "@deck.gl/aggregation-layers": "9.3.2",

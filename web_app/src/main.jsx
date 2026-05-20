@@ -1,16 +1,12 @@
-import React from 'react';
-import {createRoot} from 'react-dom/client';
-import {Provider} from 'react-redux';
+const processEnv = globalThis.process?.env ?? {};
 
-import App from './App.jsx';
-import {store} from './store.js';
-import './styles.css';
+globalThis.process = {
+  ...(globalThis.process ?? {}),
+  env: {
+    ...processEnv,
+    NODE_DEBUG: processEnv.NODE_DEBUG ?? '',
+    NODE_ENV: processEnv.NODE_ENV ?? (import.meta.env.PROD ? 'production' : 'development')
+  }
+};
 
-createRoot(document.getElementById('root')).render(
-  <React.StrictMode>
-    <Provider store={store}>
-      <App />
-    </Provider>
-  </React.StrictMode>
-);
-
+import('./bootstrap.jsx');

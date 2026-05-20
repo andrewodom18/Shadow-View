@@ -116,7 +116,17 @@ computed = "unique_mgrs_count"
 header = "MGRS Unique Count"
 ```
 
-`unique_mgrs_count` counts distinct non-empty MGRS values for each grouped BSSID.
+`unique_mgrs_count` counts unique non-empty MGRS locations for each grouped BSSID.
+Locations within the configured distance threshold count as the same location, so
+minor MGRS differences do not inflate the count.
+
+```toml
+[mgrs_unique_count]
+distance_threshold_meters = 50
+```
+
+If `[mgrs_unique_count]` is omitted, `distance_threshold_meters` defaults to `50`.
+Set it lower or higher if you want a tighter or looser location range.
 
 This computed column is also supported if a future config needs it:
 

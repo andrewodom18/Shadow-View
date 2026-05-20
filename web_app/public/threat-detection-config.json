@@ -1,0 +1,19 @@
+{
+  "enabled": true,
+  "sameLocationMeters": 50,
+  "maxAccuracyMeters": 100,
+  "minScansLow": 3,
+  "minDurationMinutesLow": 5,
+  "minUniqueLocationsLow": 1,
+  "minPathSpanMetersLow": 0,
+  "minScansMedium": 4,
+  "minDurationMinutesMedium": 20,
+  "minUniqueLocationsMedium": 2,
+  "minPathSpanMetersMedium": 100,
+  "minScansHigh": 6,
+  "minDurationMinutesHigh": 45,
+  "minUniqueLocationsHigh": 3,
+  "minPathSpanMetersHigh": 250,
+  "notifyAtSeverity": "medium",
+  "maxThreatsToShow": 10
+}

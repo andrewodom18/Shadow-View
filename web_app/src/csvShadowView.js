@@ -1,12 +1,13 @@
 import Papa from 'papaparse';
 
 const DEVICE_ALIASES = ['bssid', 'bssid_1', 'bssid (2)', 'device bssid'];
-const FALLBACK_DEVICE_ALIASES = ['device name', 'eci', 'document id'];
 const TIME_ALIASES = ['event time', 'device time', 'last updated'];
 const LAT_ALIASES = ['latitude', 'lat'];
 const LON_ALIASES = ['longitude', 'lon', 'lng'];
 const LAT_LON_ALIASES = ['location (lat/lon)', 'location lat/lon', 'lat/lon'];
 const MGRS_ALIASES = ['mgrs', 'location (mgrs)'];
+const ACCURACY_ALIASES = ['accuracy', 'accuracy meters'];
+const SSID_ALIASES = ['ssid', 'ssid (2)', 'network name'];
 
 export function normalizeHeader(value) {
   return String(value ?? '')
@@ -33,19 +34,9 @@ function uniqueHeaders(rawHeaders) {
   });
 }
 
-function findHeader(headers, aliases) {
+function findHeaders(headers, aliases) {
   const normalizedAliases = aliases.map(normalizeHeader);
-  return headers.find((header) => normalizedAliases.includes(header.normalized)) ?? null;
-}
-
-function findAnyHeader(headers, aliasGroups) {
-  for (const aliases of aliasGroups) {
-    const match = findHeader(headers, aliases);
-    if (match) {
-      return match;
-    }
-  }
-  return null;
+  return headers.filter((header) => normalizedAliases.includes(header.normalized));
 }
 
 function parseNumber(value) {
@@ -53,7 +44,12 @@ function parseNumber(value) {
     return null;
   }
 
-  const number = Number(String(value).trim());
+  const cleaned = String(value).trim();
+  if (!cleaned) {
+    return null;
+  }
+
+  const number = Number(cleaned);
   return Number.isFinite(number) ? number : null;
 }
 
@@ -102,21 +98,43 @@ function valueFromHeader(row, header) {
   return row[header.key] ?? '';
 }
 
+function valueFromHeaders(row, headers) {
+  for (const header of headers) {
+    const value = valueFromHeader(row, header);
+    if (String(value).trim()) {
+      return value;
+    }
+  }
+  return valueFromHeader(row, headers[0]);
+}
+
 function detectColumns(headers) {
-  const deviceHeader = findAnyHeader(headers, [DEVICE_ALIASES, FALLBACK_DEVICE_ALIASES]);
-  const timeHeader = findHeader(headers, TIME_ALIASES);
-  const latHeader = findHeader(headers, LAT_ALIASES);
-  const lonHeader = findHeader(headers, LON_ALIASES);
-  const latLonHeader = findHeader(headers, LAT_LON_ALIASES);
-  const mgrsHeader = findHeader(headers, MGRS_ALIASES);
+  const deviceHeaders = findHeaders(headers, DEVICE_ALIASES);
+  const timeHeaders = findHeaders(headers, TIME_ALIASES);
+  const latHeaders = findHeaders(headers, LAT_ALIASES);
+  const lonHeaders = findHeaders(headers, LON_ALIASES);
+  const latLonHeaders = findHeaders(headers, LAT_LON_ALIASES);
+  const mgrsHeaders = findHeaders(headers, MGRS_ALIASES);
+  const accuracyHeaders = findHeaders(headers, ACCURACY_ALIASES);
+  const ssidHeaders = findHeaders(headers, SSID_ALIASES);
 
   return {
-    deviceHeader,
-    timeHeader,
-    latHeader,
-    lonHeader,
-    latLonHeader,
-    mgrsHeader
+    deviceHeader: deviceHeaders[0] ?? null,
+    deviceHeaders,
+    timeHeader: timeHeaders[0] ?? null,
+    timeHeaders,
+    latHeader: latHeaders[0] ?? null,
+    latHeaders,
+    lonHeader: lonHeaders[0] ?? null,
+    lonHeaders,
+    latLonHeader: latLonHeaders[0] ?? null,
+    latLonHeaders,
+    mgrsHeader: mgrsHeaders[0] ?? null,
+    mgrsHeaders,
+    accuracyHeader: accuracyHeaders[0] ?? null,
+    accuracyHeaders,
+    ssidHeader: ssidHeaders[0] ?? null,
+    ssidHeaders
   };
 }
 
@@ -129,13 +147,13 @@ function rowToObject(row, headers) {
 }
 
 function extractCoordinates(row, columns) {
-  const latitude = parseNumber(valueFromHeader(row, columns.latHeader));
-  const longitude = parseNumber(valueFromHeader(row, columns.lonHeader));
+  const latitude = parseNumber(valueFromHeaders(row, columns.latHeaders));
+  const longitude = parseNumber(valueFromHeaders(row, columns.lonHeaders));
   if (latitude !== null && longitude !== null) {
     return {latitude, longitude};
   }
 
-  return parseLatLonPair(valueFromHeader(row, columns.latLonHeader));
+  return parseLatLonPair(valueFromHeaders(row, columns.latLonHeaders));
 }
 
 function compareByTime(first, second) {
@@ -255,14 +273,14 @@ function ingestRows(rows, state) {
     state.rowNumber += 1;
     const row = rowToObject(rawRow, state.headers);
     const coordinates = extractCoordinates(row, state.columns);
-    const deviceValue = String(valueFromHeader(row, state.columns.deviceHeader)).trim();
+    const deviceValue = String(valueFromHeaders(row, state.columns.deviceHeaders)).trim();
 
     if (!coordinates || !deviceValue) {
       state.skippedRows += 1;
       continue;
     }
 
-    const timeRaw = String(valueFromHeader(row, state.columns.timeHeader)).trim();
+    const timeRaw = String(valueFromHeaders(row, state.columns.timeHeaders)).trim();
     const timeMs = parseTime(timeRaw);
     state.observations.push({
       rowNumber: state.rowNumber,
@@ -271,7 +289,9 @@ function ingestRows(rows, state) {
       longitude: coordinates.longitude,
       timeRaw,
       timeMs,
-      mgrs: String(valueFromHeader(row, state.columns.mgrsHeader)).trim(),
+      mgrs: String(valueFromHeaders(row, state.columns.mgrsHeaders)).trim(),
+      accuracy: parseNumber(valueFromHeaders(row, state.columns.accuracyHeaders)),
+      ssid: String(valueFromHeaders(row, state.columns.ssidHeaders)).trim(),
       original: row
     });
     state.mappedRows += 1;
@@ -289,7 +309,7 @@ function finishParse(state, fileName) {
     throw new Error('The selected CSV is empty.');
   }
   if (!state.columns?.deviceHeader) {
-    throw new Error('Could not find a BSSID column or a supported device identifier column.');
+    throw new Error('Could not find a BSSID column.');
   }
   if ((!state.columns?.latHeader || !state.columns?.lonHeader) && !state.columns?.latLonHeader) {
     throw new Error('Could not find Latitude/Longitude or Location (Lat/Lon) columns.');

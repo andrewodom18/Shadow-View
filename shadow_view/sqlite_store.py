@@ -13,6 +13,7 @@ from .config import (
     configured_aliases,
     grouping_enabled,
     grouping_key,
+    mgrs_unique_distance_meters,
     multi_value_separator,
     output_column_by_header,
     sighting_device_key,
@@ -20,6 +21,7 @@ from .config import (
     sort_rules,
 )
 from .errors import CleanerError
+from .mgrs_distance import MgrsPoint, mgrs_distance_meters, parse_mgrs
 from .time_buckets import parse_event_time
 
 
@@ -39,6 +41,12 @@ def quote_literal(value: str) -> str:
 
 def format_whole_number(value: float) -> str:
     return str(math.floor(value + 0.5))
+
+
+def format_sql_number(value: float) -> str:
+    if not math.isfinite(value):
+        raise CleanerError(f"Invalid numeric config value: {value!r}")
+    return format(value, ".15g")
 
 
 def apply_sort_value_type(expression: str, value_type: str) -> str:
@@ -136,11 +144,56 @@ class DateTimeRange:
         return f"{start} to {end}"
 
 
+class UniqueMgrsCount:
+    def __init__(self) -> None:
+        self.distance_threshold_meters = 50.0
+        self.clusters: list[list[MgrsPoint]] = []
+        self.unparseable_values: set[str] = set()
+
+    def step(self, value: object, distance_threshold_meters: object = None) -> None:
+        if distance_threshold_meters is not None:
+            self.distance_threshold_meters = float(distance_threshold_meters)
+        if value is None:
+            return
+
+        cleaned = str(value).strip()
+        if not cleaned:
+            return
+
+        point = parse_mgrs(cleaned)
+        if point is None:
+            self.unparseable_values.add(cleaned)
+            return
+
+        matching_cluster_indexes = [
+            index
+            for index, cluster in enumerate(self.clusters)
+            if any(
+                mgrs_distance_meters(point, existing)
+                <= self.distance_threshold_meters
+                for existing in cluster
+            )
+        ]
+        if not matching_cluster_indexes:
+            self.clusters.append([point])
+            return
+
+        target_index = matching_cluster_indexes[0]
+        self.clusters[target_index].append(point)
+        for index in reversed(matching_cluster_indexes[1:]):
+            self.clusters[target_index].extend(self.clusters[index])
+            del self.clusters[index]
+
+    def finalize(self) -> int:
+        return len(self.clusters) + len(self.unparseable_values)
+
+
 def register_aggregates(connection: sqlite3.Connection) -> None:
     connection.create_function("datetime_sort_key", 1, datetime_sort_key)
     connection.create_aggregate("distinct_list", 2, DistinctList)
     connection.create_aggregate("average_value", 1, AverageValue)
     connection.create_aggregate("datetime_range", 1, DateTimeRange)
+    connection.create_aggregate("unique_mgrs_count", 2, UniqueMgrsCount)
 
 
 def create_observations_table(
@@ -254,10 +307,11 @@ def build_row_query(
         )
 
     if needs_unique_mgrs:
+        distance_meters = format_sql_number(mgrs_unique_distance_meters(config))
         with_parts.append(
             "unique_mgrs AS ("
             f"SELECT {quote_identifier(device_key)} AS device_key, "
-            f"COUNT(DISTINCT NULLIF(TRIM({quote_identifier('mgrs')}), '')) AS unique_mgrs_count "
+            f"unique_mgrs_count({quote_identifier('mgrs')}, {distance_meters}) AS unique_mgrs_count "
             "FROM observations "
             f"GROUP BY {quote_identifier(device_key)})"
         )
@@ -301,14 +355,15 @@ def grouped_source_expression(
     raise CleanerError(f"Unsupported aggregate for {source}: {aggregate}")
 
 
-def grouped_computed_expression(column: dict[str, str]) -> str:
+def grouped_computed_expression(column: dict[str, str], config: dict[str, Any]) -> str:
     computed = column["computed"]
     header = quote_alias(column["header"])
 
     if computed == "unique_mgrs_count":
+        distance_meters = format_sql_number(mgrs_unique_distance_meters(config))
         return (
-            "COUNT(DISTINCT NULLIF(TRIM("
-            f"o.{quote_identifier('mgrs')}), '')) AS {header}"
+            f"unique_mgrs_count(o.{quote_identifier('mgrs')}, "
+            f"{distance_meters}) AS {header}"
         )
     if computed == "total_sightings":
         return f"COUNT(*) AS {header}"
@@ -317,11 +372,11 @@ def grouped_computed_expression(column: dict[str, str]) -> str:
 
 
 def grouped_select_expression(
-    column: dict[str, str], group_key: str, separator: str
+    column: dict[str, str], group_key: str, separator: str, config: dict[str, Any]
 ) -> str:
     if "source" in column:
         return grouped_source_expression(column, group_key, separator)
-    return grouped_computed_expression(column)
+    return grouped_computed_expression(column, config)
 
 
 def build_grouped_query(
@@ -333,7 +388,8 @@ def build_grouped_query(
 
     separator = multi_value_separator(config)
     select_sql = ", ".join(
-        grouped_select_expression(column, group_key, separator) for column in columns
+        grouped_select_expression(column, group_key, separator, config)
+        for column in columns
     )
     final_select_sql = ", ".join(quote_alias(column["header"]) for column in columns)
     group_sql = f"GROUP BY o.{quote_identifier(group_key)}"
