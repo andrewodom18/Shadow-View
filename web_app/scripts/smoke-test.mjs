@@ -65,6 +65,17 @@ assert.equal(groupedMapData.points[0]['Location observed span'], '1m');
 assert.equal(groupedMapData.points[0].__cluster_size, 2);
 assert.equal(groupedMapData.points[0].__cluster_duration_ms, 60000);
 assert.equal(groupedMapData.clusterDistanceMeters, 200);
+assert.deepEqual(
+  Object.keys(groupedMapData.points[0]).filter((key) => !key.startsWith('__')).slice(0, 6),
+  [
+    'Map radius (m)',
+    'Grouped scans',
+    'Grouped rows',
+    'Location group radius (m)',
+    'Location first seen',
+    'Location last seen'
+  ]
+);
 assert.equal(clickedPointIndex({picked: true, index: 1, layer: {props: {id: POINTS_LAYER_ID}}}), 1);
 assert.equal(clickedPointIndex({picked: true, object: {index: 0}, layer: {props: {id: POINTS_LAYER_ID}}}), 0);
 assert.equal(clickedPointIndex({picked: true, index: 0, layer: {props: {id: 'other-layer'}}}), null);

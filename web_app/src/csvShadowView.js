@@ -362,9 +362,7 @@ function observationGroupPoint(group, index) {
     0,
     ...orderedGroup.map((observation) => observationDistanceMeters(representative, observation)).filter(Number.isFinite)
   );
-
-  return {
-    ...representative.original,
+  const mapFields = {
     'Map radius (m)': Number.isFinite(detectionRadiusMeters) ? Math.round(detectionRadiusMeters) : '',
     ...(orderedGroup.length > 1
       ? {
@@ -379,7 +377,12 @@ function observationGroupPoint(group, index) {
               }
             : {})
         }
-      : {}),
+      : {})
+  };
+
+  return {
+    ...mapFields,
+    ...representative.original,
     __row_number: representative.rowNumber,
     __device_id: representative.deviceId,
     __latitude: representative.latitude,

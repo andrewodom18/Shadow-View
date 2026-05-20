@@ -1,0 +1,53 @@
+Shadow View USB Tools
+=====================
+
+This USB includes two tools. Use either one.
+
+1. Shadow View CSV Cleaner.exe
+   Use this for the fastest cleaned CSV, Excel, or HTML output.
+   Double-click it, choose a Shadow View CSV, choose the outputs, then click Clean CSV.
+
+2. Shadow View Web App.exe
+   Use this for the map, BSSID review, threat indicators, and Clean & Export downloads.
+   Double-click it. A small launcher window opens, then your browser opens the web app.
+   Keep the launcher window open while you use the web app.
+
+Recommended first step
+----------------------
+
+For best speed, copy this whole folder from the USB drive to the computer's Desktop, then run the tools from there.
+Running directly from the USB also works, but it may start more slowly.
+
+Windows security prompt
+-----------------------
+
+If Windows shows a Microsoft Defender SmartScreen prompt:
+
+1. Click More info.
+2. Click Run anyway.
+
+The tools run locally on the computer. They do not upload CSV files to an outside server.
+
+Using the web app
+-----------------
+
+1. Double-click Shadow View Web App.exe.
+2. Wait for your browser to open.
+3. Click Choose CSV in the web page.
+4. Use BSSID Review to pick what you want to inspect.
+5. Use Clean & Export to download cleaned outputs.
+6. When finished, close the browser tab and click Stop & Close in the launcher.
+
+If the browser does not open automatically, click Open Web App in the launcher.
+
+Internet access
+---------------
+
+CSV cleaning and export run locally. The map page also runs locally, but some basemap tiles come from online map providers, so the background map may need internet access.
+
+Troubleshooting
+---------------
+
+- If the web app says the cleaner backend is offline, close Shadow View Web App.exe and open it again.
+- If a CSV does not load, make sure it is a Shadow View Co-Traveler or Rogue Tower CSV export.
+- If the web app still will not open, restart the computer and try again from the Desktop copy of this folder.

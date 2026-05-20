@@ -17,6 +17,7 @@ echo.
 echo Built app:
 echo dist\Shadow View CSV Cleaner.exe
 echo.
-echo Copy that EXE to the USB drive.
+echo Build the web app executable with scripts\build_windows_web_app.bat,
+echo then run py scripts\create_usb_bundle.py to make the USB-ready folder.
 
 endlocal

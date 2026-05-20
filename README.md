@@ -109,22 +109,25 @@ Build a Windows `.exe` on a Windows machine:
 scripts\build_windows_app.bat
 ```
 
-Or build it from GitHub on any computer, including a Mac:
+Build the USB-ready Windows bundle from GitHub on any computer, including a Mac:
 
 1. Push the repo to GitHub.
 2. Open the repo's **Actions** tab.
 3. Select **Build Windows App**.
 4. Click **Run workflow**.
 5. Open the completed run.
-6. Download the artifact named **Shadow View CSV Cleaner - Windows**.
+6. Download the artifact named **Shadow View USB Bundle - Windows**.
+7. Unzip the downloaded artifact and copy its contents to the USB drive.
 
-That creates:
+The bundle includes:
 
 ```text
-dist\Shadow View CSV Cleaner.exe
+START HERE - Shadow View.txt
+Shadow View CSV Cleaner.exe
+Shadow View Web App.exe
 ```
 
-Copy that `.exe` to the USB drive. Target computers do not need Python installed.
+Target computers do not need Python, Node, npm, or this repository.
 
 The cleaner logic remains in the importable `shadow_view` package, so the same code is still ready for the future Shadow View website backend.
 
@@ -133,6 +136,17 @@ The Windows build uses `assets/shadow_view_cleaner_icon.ico` as the app icon. To
 ```bash
 python3 scripts/generate_app_icon.py
 ```
+
+## USB Handoff
+
+Use the complete USB bundle when giving the tools to a nontechnical Windows user. It provides both workflows:
+
+- `Shadow View CSV Cleaner.exe`: quick desktop CSV cleaner.
+- `Shadow View Web App.exe`: starts the local backend, opens the browser frontend, and supports map review plus **Clean & Export** downloads.
+
+The user should copy the bundle folder from the USB drive to their Desktop, open `START HERE - Shadow View.txt`, then double-click whichever tool they want to use.
+
+Detailed distribution steps are in `docs/USB_DISTRIBUTION.md`.
 
 ## Shadow View Map Web App
 
@@ -196,6 +210,8 @@ Then open:
 ```text
 http://127.0.0.1:8765/
 ```
+
+For nontechnical Windows users, ship `Shadow View Web App.exe` from the USB bundle instead of asking them to run these commands.
 
 Use Kepler's native map-style tool to switch basemaps. The app provides Street, Satellite Imagery, and Dark styles there. Street and Dark use Carto online styles, and Satellite Imagery uses online raster tiles, so those basemaps require network access.
 
