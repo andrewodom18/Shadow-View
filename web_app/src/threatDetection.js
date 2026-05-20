@@ -235,24 +235,25 @@ function distinctValues(values) {
   );
 }
 
+function minUniqueScanThreshold(config, level) {
+  const suffix = `${level[0].toUpperCase()}${level.slice(1)}`;
+  return config[`minScans${suffix}`] ?? config[`minUniqueLocations${suffix}`] ?? Infinity;
+}
+
 function evaluateSeverity(metrics, config) {
-  const scannerLocationCount = metrics.scannerLocationCount ?? metrics.uniqueLocationCount;
   const scannerPathSpanMeters = metrics.scannerPathSpanMeters ?? metrics.pathSpanMeters;
   const checks = {
     high:
-      metrics.scanCount >= config.minScansHigh &&
+      metrics.scanCount >= minUniqueScanThreshold(config, 'high') &&
       metrics.durationMinutes >= config.minDurationMinutesHigh &&
-      scannerLocationCount >= config.minUniqueLocationsHigh &&
       scannerPathSpanMeters >= config.minPathSpanMetersHigh,
     medium:
-      metrics.scanCount >= config.minScansMedium &&
+      metrics.scanCount >= minUniqueScanThreshold(config, 'medium') &&
       metrics.durationMinutes >= config.minDurationMinutesMedium &&
-      scannerLocationCount >= config.minUniqueLocationsMedium &&
       scannerPathSpanMeters >= config.minPathSpanMetersMedium,
     low:
-      metrics.scanCount >= config.minScansLow &&
+      metrics.scanCount >= minUniqueScanThreshold(config, 'low') &&
       metrics.durationMinutes >= config.minDurationMinutesLow &&
-      scannerLocationCount >= config.minUniqueLocationsLow &&
       scannerPathSpanMeters >= config.minPathSpanMetersLow
   };
 
@@ -292,6 +293,12 @@ function buildReason(metrics) {
   const locationCopy = `${metrics.scannerLocationCount} scanner location${
     metrics.scannerLocationCount === 1 ? '' : 's'
   }`;
+  const scanCopy =
+    metrics.qualifyingScanCount === metrics.scanCount
+      ? ''
+      : ` from ${metrics.qualifyingScanCount} qualifying sighting${
+          metrics.qualifyingScanCount === 1 ? '' : 's'
+        }`;
   const radiusCopy =
     metrics.medianDetectionRadiusMeters === null
       ? 'detection radius unavailable'
@@ -303,7 +310,7 @@ function buildReason(metrics) {
         } outside radius or MGRS criteria ignored.`
       : '';
 
-  return `Detected ${metrics.scanCount} times across ${locationCopy} over ${formatMinutes(
+  return `Detected at ${locationCopy}${scanCopy} over ${formatMinutes(
     metrics.durationMinutes
   )}. Scanner path spanned ${formatMeters(metrics.scannerPathSpanMeters)} with ${radiusCopy}.${ignoredCopy}`;
 }
@@ -356,14 +363,16 @@ export function analyzeThreats(observations, config) {
     const lastTimeMs = timeValues.length ? Math.max(...timeValues) : null;
     const durationMinutes = firstTimeMs !== null && lastTimeMs !== null ? (lastTimeMs - firstTimeMs) / 60000 : 0;
     const clusters = clusterPoints(points, config.sameLocationMeters);
+    const uniqueScanCount = clusters.length;
     const scannerPathSpanMeters = maxPairDistanceMeters(points);
     const medianDetectionRadiusMeters = median(qualifiedRows.map(({detectionRadius}) => detectionRadius));
     const metrics = {
-      scanCount: qualifiedRows.length,
+      scanCount: uniqueScanCount,
+      qualifyingScanCount: qualifiedRows.length,
       rawScanCount: rows.length,
       ignoredScanCount: rows.length - qualifiedRows.length,
-      scannerLocationCount: clusters.length,
-      uniqueLocationCount: clusters.length,
+      scannerLocationCount: uniqueScanCount,
+      uniqueLocationCount: uniqueScanCount,
       durationMinutes,
       scannerPathSpanMeters,
       pathSpanMeters: scannerPathSpanMeters,
@@ -392,6 +401,7 @@ export function analyzeThreats(observations, config) {
     return (
       second.rank - first.rank ||
       second.metrics.scanCount - first.metrics.scanCount ||
+      second.metrics.qualifyingScanCount - first.metrics.qualifyingScanCount ||
       second.metrics.durationMinutes - first.metrics.durationMinutes ||
       first.bssid.localeCompare(second.bssid)
     );

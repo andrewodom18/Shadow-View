@@ -1,25 +1,25 @@
 export const DEFAULT_THREAT_CONFIG = Object.freeze({
   enabled: true,
   sameLocationMeters: 50,
-  maxDetectionRadiusMeters: 100,
-  maxAccuracyMeters: 100,
-  minScansLow: 3,
-  minDurationMinutesLow: 5,
-  minUniqueLocationsLow: 1,
-  minPathSpanMetersLow: 0,
-  minScansMedium: 4,
-  minDurationMinutesMedium: 20,
-  minUniqueLocationsMedium: 2,
-  minPathSpanMetersMedium: 100,
-  minScansHigh: 6,
-  minDurationMinutesHigh: 45,
-  minUniqueLocationsHigh: 3,
-  minPathSpanMetersHigh: 250,
-  notifyAtSeverity: 'medium',
+  maxDetectionRadiusMeters: 50,
+  maxAccuracyMeters: 50,
+  minScansLow: 8,
+  minDurationMinutesLow: 30,
+  minUniqueLocationsLow: 8,
+  minPathSpanMetersLow: 250,
+  minScansMedium: 12,
+  minDurationMinutesMedium: 90,
+  minUniqueLocationsMedium: 12,
+  minPathSpanMetersMedium: 750,
+  minScansHigh: 25,
+  minDurationMinutesHigh: 180,
+  minUniqueLocationsHigh: 25,
+  minPathSpanMetersHigh: 1250,
+  notifyAtSeverity: 'high',
   maxThreatsToShow: 10
 });
 
-const STORAGE_KEY = 'shadow-view-threat-config-v1';
+const STORAGE_KEY = 'shadow-view-threat-config-v3';
 const CONFIG_URL = '/threat-detection-config.json';
 const SEVERITIES = new Set(['low', 'medium', 'high']);
 
@@ -42,6 +42,15 @@ function toPositiveInteger(value, fallback, {allowZero = false} = {}) {
   return Math.round(toPositiveNumber(value, fallback, {allowZero}));
 }
 
+function thresholdValue(sourceConfig, merged, scanKey, locationKey) {
+  const value = hasOwn(sourceConfig, scanKey)
+    ? merged[scanKey]
+    : hasOwn(sourceConfig, locationKey)
+      ? merged[locationKey]
+      : DEFAULT_THREAT_CONFIG[scanKey];
+  return toPositiveInteger(value, DEFAULT_THREAT_CONFIG[scanKey]);
+}
+
 export function normalizeThreatConfig(rawConfig = {}) {
   const sourceConfig = rawConfig && typeof rawConfig === 'object' ? rawConfig : {};
   const merged = {...DEFAULT_THREAT_CONFIG, ...sourceConfig};
@@ -55,52 +64,46 @@ export function normalizeThreatConfig(rawConfig = {}) {
     radiusSource,
     DEFAULT_THREAT_CONFIG.maxDetectionRadiusMeters
   );
+  const minScansLow = thresholdValue(sourceConfig, merged, 'minScansLow', 'minUniqueLocationsLow');
+  const minScansMedium = thresholdValue(sourceConfig, merged, 'minScansMedium', 'minUniqueLocationsMedium');
+  const minScansHigh = thresholdValue(sourceConfig, merged, 'minScansHigh', 'minUniqueLocationsHigh');
 
   return {
     enabled: Boolean(merged.enabled),
     sameLocationMeters: toPositiveNumber(merged.sameLocationMeters, DEFAULT_THREAT_CONFIG.sameLocationMeters),
     maxDetectionRadiusMeters,
     maxAccuracyMeters: maxDetectionRadiusMeters,
-    minScansLow: toPositiveInteger(merged.minScansLow, DEFAULT_THREAT_CONFIG.minScansLow),
+    minScansLow,
     minDurationMinutesLow: toPositiveNumber(
       merged.minDurationMinutesLow,
       DEFAULT_THREAT_CONFIG.minDurationMinutesLow,
       {allowZero: true}
     ),
-    minUniqueLocationsLow: toPositiveInteger(
-      merged.minUniqueLocationsLow,
-      DEFAULT_THREAT_CONFIG.minUniqueLocationsLow
-    ),
+    minUniqueLocationsLow: minScansLow,
     minPathSpanMetersLow: toPositiveNumber(
       merged.minPathSpanMetersLow,
       DEFAULT_THREAT_CONFIG.minPathSpanMetersLow,
       {allowZero: true}
     ),
-    minScansMedium: toPositiveInteger(merged.minScansMedium, DEFAULT_THREAT_CONFIG.minScansMedium),
+    minScansMedium,
     minDurationMinutesMedium: toPositiveNumber(
       merged.minDurationMinutesMedium,
       DEFAULT_THREAT_CONFIG.minDurationMinutesMedium,
       {allowZero: true}
     ),
-    minUniqueLocationsMedium: toPositiveInteger(
-      merged.minUniqueLocationsMedium,
-      DEFAULT_THREAT_CONFIG.minUniqueLocationsMedium
-    ),
+    minUniqueLocationsMedium: minScansMedium,
     minPathSpanMetersMedium: toPositiveNumber(
       merged.minPathSpanMetersMedium,
       DEFAULT_THREAT_CONFIG.minPathSpanMetersMedium,
       {allowZero: true}
     ),
-    minScansHigh: toPositiveInteger(merged.minScansHigh, DEFAULT_THREAT_CONFIG.minScansHigh),
+    minScansHigh,
     minDurationMinutesHigh: toPositiveNumber(
       merged.minDurationMinutesHigh,
       DEFAULT_THREAT_CONFIG.minDurationMinutesHigh,
       {allowZero: true}
     ),
-    minUniqueLocationsHigh: toPositiveInteger(
-      merged.minUniqueLocationsHigh,
-      DEFAULT_THREAT_CONFIG.minUniqueLocationsHigh
-    ),
+    minUniqueLocationsHigh: minScansHigh,
     minPathSpanMetersHigh: toPositiveNumber(
       merged.minPathSpanMetersHigh,
       DEFAULT_THREAT_CONFIG.minPathSpanMetersHigh,

@@ -20,10 +20,12 @@ import {useDispatch} from 'react-redux';
 import {cleanCsvWithBackend, downloadBlob, fetchCleanerProfiles} from './cleanerApi.js';
 import {formatTime, parseShadowViewCsv, parseShadowViewCsvText, prepareDeviceMapData} from './csvShadowView.js';
 import {CUSTOM_MAP_STYLES, createKeplerPayload} from './keplerConfig.js';
+import {countBySeverity, deviceMatchesSearch, searchTerm, threatMatchesSearch} from './searchFilters.js';
 import {clearSavedThreatConfig, loadThreatConfig, normalizeThreatConfig, saveThreatConfig} from './threatConfig.js';
 import {analyzeThreats, threatSummary} from './threatDetection.js';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN || 'shadow-view-local';
+const SIGHTING_LIST_LIMIT = 150;
 
 function useElementSize() {
   const ref = useRef(null);
@@ -125,15 +127,24 @@ function scannerSightingMeta(point) {
   return radius ? `${location} - ${radius}` : location;
 }
 
-function SettingNumber({disabled, label, min = 0, step = 1, value, onChange}) {
+function visibleSightingPoints(points, order) {
+  if (order === 'latest') {
+    return points.slice(-SIGHTING_LIST_LIMIT).reverse();
+  }
+  return points.slice(0, SIGHTING_LIST_LIMIT);
+}
+
+function SettingNumber({disabled, help, label, min = 0, step = 1, value, onChange}) {
   return (
-    <label className="setting-field">
+    <label className="setting-field" title={help}>
       <span>{label}</span>
       <input
+        aria-label={label}
         disabled={disabled}
         min={min}
         onChange={(event) => onChange(Number(event.target.value))}
         step={step}
+        title={help}
         type="number"
         value={value}
       />
@@ -150,13 +161,15 @@ function SeveritySettings({config, disabled, label, level, onValue}) {
       <div className="settings-grid compact">
         <SettingNumber
           disabled={disabled}
-          label="Scans"
+          help="Minimum scanner-location clusters where this BSSID must appear. Repeated sightings inside the same location radius count once."
+          label="Unique scans"
           min={1}
           value={config[`minScans${suffix}`]}
           onChange={(value) => onValue(`minScans${suffix}`, value)}
         />
         <SettingNumber
           disabled={disabled}
+          help="Minimum elapsed time between the first and last qualifying sighting."
           label="Minutes"
           min={0}
           value={config[`minDurationMinutes${suffix}`]}
@@ -164,13 +177,7 @@ function SeveritySettings({config, disabled, label, level, onValue}) {
         />
         <SettingNumber
           disabled={disabled}
-          label="Locations"
-          min={1}
-          value={config[`minUniqueLocations${suffix}`]}
-          onChange={(value) => onValue(`minUniqueLocations${suffix}`, value)}
-        />
-        <SettingNumber
-          disabled={disabled}
+          help="Minimum scanner path distance covered while this BSSID is still being detected."
           label="Path span (m)"
           min={0}
           value={config[`minPathSpanMeters${suffix}`]}
@@ -193,17 +200,23 @@ function ThreatSettings({config, disabled, onChange, onReset}) {
         <span>Threat Criteria</span>
       </summary>
       <div className="settings-grid criteria-basics">
-        <label className="setting-field setting-toggle">
+        <label
+          className="setting-field setting-toggle"
+          title="Turn threat matching on or off for the loaded CSV."
+        >
           <span>Detection</span>
           <input
+            aria-label="Detection"
             checked={config.enabled}
             disabled={disabled}
             onChange={(event) => setConfigValue('enabled', event.target.checked)}
+            title="Turn threat matching on or off for the loaded CSV."
             type="checkbox"
           />
         </label>
         <SettingNumber
           disabled={disabled}
+          help="Scanner MGRS points within this distance count as the same location."
           label="Same location (m)"
           min={1}
           value={config.sameLocationMeters}
@@ -211,15 +224,18 @@ function ThreatSettings({config, disabled, onChange, onReset}) {
         />
         <SettingNumber
           disabled={disabled}
+          help="Only sightings with Accuracy at or below this radius qualify."
           label="Max radius (m)"
           min={1}
           value={config.maxDetectionRadiusMeters}
           onChange={(value) => setConfigValue('maxDetectionRadiusMeters', value)}
         />
-        <label className="setting-field">
+        <label className="setting-field" title="Minimum severity required for the notification alert.">
           <span>Notify at</span>
           <select
+            aria-label="Notify at"
             disabled={disabled}
+            title="Minimum severity required for the notification alert."
             value={config.notifyAtSeverity}
             onChange={(event) => setConfigValue('notifyAtSeverity', event.target.value)}
           >
@@ -230,6 +246,7 @@ function ThreatSettings({config, disabled, onChange, onReset}) {
         </label>
         <SettingNumber
           disabled={disabled}
+          help="Maximum number of matching BSSIDs shown in the threat list."
           label="Max list items"
           min={1}
           value={config.maxThreatsToShow}
@@ -265,25 +282,75 @@ function ThreatSettings({config, disabled, onChange, onReset}) {
   );
 }
 
-function ThreatPanel({notification, onSelectThreat, selectedDeviceId, threats, visibleThreats}) {
+function ThreatPanel({
+  filteredCount,
+  notification,
+  onFilterChange,
+  onSearchChange,
+  onSelectThreat,
+  notifyAtSeverity,
+  searchValue,
+  selectedDeviceId,
+  severityFilter,
+  threatCounts,
+  totalThreatCounts,
+  threats,
+  visibleThreats
+}) {
+  const visibleLabel = severityFilter === 'all' ? 'matches' : `${severityLabel(severityFilter).toLowerCase()} matches`;
+  const hasSearch = searchTerm(searchValue) !== '';
+
   return (
     <section className="panel threat-panel" aria-live="polite">
       <div className="section-heading">
         <h2>Threat Indicators</h2>
         <span>{threats.length.toLocaleString()}</span>
       </div>
+      <div className="severity-filter" role="group" aria-label="Threat severity filter">
+        {['all', 'high', 'medium', 'low'].map((severity) => (
+          <button
+            aria-pressed={severityFilter === severity}
+            className={severityFilter === severity ? 'active' : ''}
+            key={severity}
+            onClick={() => onFilterChange(severity)}
+            type="button"
+          >
+            <span>{severity === 'all' ? 'All' : severityLabel(severity)}</span>
+            <strong>{(threatCounts[severity] ?? 0).toLocaleString()}</strong>
+          </button>
+        ))}
+      </div>
+      <label className="search-field">
+        <span>Search threats</span>
+        <input
+          onChange={(event) => onSearchChange(event.target.value)}
+          placeholder="BSSID or SSID"
+          type="search"
+          value={searchValue}
+        />
+      </label>
       {notification ? (
         <div className={`threat-alert ${notification.highestSeverity}`}>
           <Bell aria-hidden="true" size={16} />
           <span>
-            {notification.count.toLocaleString()} BSSID{notification.count === 1 ? '' : 's'} match.
-            Highest severity: {severityLabel(notification.highestSeverity)}.
+            {notification.count.toLocaleString()} BSSID{notification.count === 1 ? '' : 's'} at or above{' '}
+            {severityLabel(notifyAtSeverity).toLowerCase()}. Highest severity:{' '}
+            {severityLabel(notification.highestSeverity)}. Current matches: high {totalThreatCounts.high.toLocaleString()},
+            medium {totalThreatCounts.medium.toLocaleString()}, low {totalThreatCounts.low.toLocaleString()}.
           </span>
         </div>
       ) : threats.length ? (
         <p className="empty-state">Matches are below the notification threshold.</p>
       ) : (
         <p className="empty-state">No BSSIDs match the current criteria.</p>
+      )}
+      {Boolean(filteredCount) && (
+        <p className="list-note">
+          Showing {visibleThreats.length.toLocaleString()} of {filteredCount.toLocaleString()} {visibleLabel}.
+        </p>
+      )}
+      {!filteredCount && threats.length > 0 && (
+        <p className="empty-state">No {visibleLabel}{hasSearch ? ' match the search.' : ' for the current criteria.'}</p>
       )}
       {Boolean(visibleThreats.length) && (
         <div className="threat-list">
@@ -351,6 +418,10 @@ export default function App() {
   const [downloadInfo, setDownloadInfo] = useState(null);
   const [baseThreatConfig, setBaseThreatConfig] = useState(() => normalizeThreatConfig());
   const [threatConfig, setThreatConfig] = useState(() => normalizeThreatConfig());
+  const [threatSeverityFilter, setThreatSeverityFilter] = useState('all');
+  const [threatSearch, setThreatSearch] = useState('');
+  const [deviceSearch, setDeviceSearch] = useState('');
+  const [sightingOrder, setSightingOrder] = useState('earliest');
   const fileInputRef = useRef(null);
 
   const selectedDevice = useMemo(
@@ -370,7 +441,40 @@ export default function App() {
     () => threatSummary(threats, threatConfig.notifyAtSeverity),
     [threatConfig.notifyAtSeverity, threats]
   );
-  const visibleThreats = threats.slice(0, threatConfig.maxThreatsToShow);
+  const totalThreatCounts = useMemo(() => countBySeverity(threats), [threats]);
+  const normalizedThreatSearch = useMemo(() => searchTerm(threatSearch), [threatSearch]);
+  const searchedThreats = useMemo(
+    () => threats.filter((threat) => threatMatchesSearch(threat, normalizedThreatSearch)),
+    [normalizedThreatSearch, threats]
+  );
+  const threatCounts = useMemo(() => countBySeverity(searchedThreats), [searchedThreats]);
+  const filteredThreats = useMemo(
+    () =>
+      threatSeverityFilter === 'all'
+        ? searchedThreats
+        : searchedThreats.filter((threat) => threat.severity === threatSeverityFilter),
+    [searchedThreats, threatSeverityFilter]
+  );
+  const visibleThreats = filteredThreats.slice(0, threatConfig.maxThreatsToShow);
+  const normalizedDeviceSearch = useMemo(() => searchTerm(deviceSearch), [deviceSearch]);
+  const filteredDevices = useMemo(() => {
+    if (!parsedCsv) {
+      return [];
+    }
+
+    return parsedCsv.devices.filter((device) =>
+      deviceMatchesSearch(device, threatsByBssid.get(device.id), normalizedDeviceSearch)
+    );
+  }, [normalizedDeviceSearch, parsedCsv, threatsByBssid]);
+  const selectedDeviceOutsideFilter = Boolean(
+    selectedDevice && !filteredDevices.some((device) => device.id === selectedDevice.id)
+  );
+  const deviceOptions = useMemo(() => {
+    if (!selectedDeviceOutsideFilter) {
+      return filteredDevices;
+    }
+    return [{...selectedDevice, currentOutsideFilter: true}, ...filteredDevices];
+  }, [filteredDevices, selectedDevice, selectedDeviceOutsideFilter]);
 
   const loadParsedCsv = useCallback((result, elapsed) => {
     setElapsedMs(elapsed);
@@ -439,6 +543,10 @@ export default function App() {
     setElapsedMs(null);
     setParseProgress(null);
     setParsedCsv(null);
+    setThreatSeverityFilter('all');
+    setThreatSearch('');
+    setDeviceSearch('');
+    setSightingOrder('earliest');
     setSelectedDeviceId('');
     setSelectedPoint(null);
     setDeviceMapData({points: [], segments: []});
@@ -515,6 +623,10 @@ export default function App() {
       setParseProgress(null);
       setParsedCsv(null);
       setSelectedFile(new File([csvText], fileName, {type: 'text/csv'}));
+      setThreatSeverityFilter('all');
+      setThreatSearch('');
+      setDeviceSearch('');
+      setSightingOrder('earliest');
       setSelectedDeviceId('');
       setSelectedPoint(null);
       setDeviceMapData({points: [], segments: []});
@@ -558,6 +670,10 @@ export default function App() {
     setElapsedMs(null);
     setParseProgress(null);
     setParsedCsv(null);
+    setThreatSeverityFilter('all');
+    setThreatSearch('');
+    setDeviceSearch('');
+    setSightingOrder('earliest');
     setSelectedDeviceId('');
     setSelectedPoint(null);
     setDeviceMapData({points: [], segments: []});
@@ -604,7 +720,6 @@ export default function App() {
 
     const nextMapData = prepareDeviceMapData(parsedCsv.observations, selectedDeviceId);
     setDeviceMapData(nextMapData);
-    setSelectedPoint(nextMapData.points[0] ?? null);
     const timer = window.setTimeout(() => {
       dispatch(addDataToMap(createKeplerPayload({...nextMapData, deviceId: selectedDeviceId})));
     }, 500);
@@ -612,7 +727,14 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [dispatch, parsedCsv, selectedDeviceId]);
 
-  const visiblePoints = deviceMapData.points.slice(0, 150);
+  const visiblePoints = useMemo(
+    () => visibleSightingPoints(deviceMapData.points, sightingOrder),
+    [deviceMapData.points, sightingOrder]
+  );
+
+  useEffect(() => {
+    setSelectedPoint(visiblePoints[0] ?? null);
+  }, [visiblePoints]);
 
   return (
     <main className="app-shell">
@@ -757,9 +879,17 @@ export default function App() {
             </section>
 
             <ThreatPanel
+              filteredCount={filteredThreats.length}
               notification={notification}
+              onFilterChange={setThreatSeverityFilter}
+              onSearchChange={setThreatSearch}
               onSelectThreat={(threat) => setSelectedDeviceId(threat.bssid)}
+              notifyAtSeverity={threatConfig.notifyAtSeverity}
+              searchValue={threatSearch}
               selectedDeviceId={selectedDeviceId}
+              severityFilter={threatSeverityFilter}
+              threatCounts={threatCounts}
+              totalThreatCounts={totalThreatCounts}
               threats={threats}
               visibleThreats={visibleThreats}
             />
@@ -775,19 +905,38 @@ export default function App() {
 
             <section className="panel">
               <label className="field-label" htmlFor="device-select">BSSID</label>
+              <label className="search-field compact">
+                <span>Filter BSSIDs</span>
+                <input
+                  onChange={(event) => setDeviceSearch(event.target.value)}
+                  placeholder="BSSID, SSID, or severity"
+                  type="search"
+                  value={deviceSearch}
+                />
+              </label>
               <select
                 id="device-select"
                 value={selectedDeviceId}
                 onChange={(event) => setSelectedDeviceId(event.target.value)}
               >
-                {parsedCsv.devices.map((device) => (
+                {deviceOptions.map((device) => (
                   <option key={device.id} value={device.id}>
+                    {device.currentOutsideFilter ? 'Current: ' : ''}
                     {device.label}
                     {threatsByBssid.has(device.id) ? ` [${severityLabel(threatsByBssid.get(device.id).severity)}]` : ''}
                     {' '}({device.count.toLocaleString()})
                   </option>
                 ))}
               </select>
+              {deviceSearch && (
+                <p className="list-note">
+                  {filteredDevices.length > 0
+                    ? `Showing ${filteredDevices.length.toLocaleString()} of ${parsedCsv.devices.length.toLocaleString()} BSSIDs.${
+                        selectedDeviceOutsideFilter ? ' Current selection is kept at top.' : ''
+                      }`
+                    : 'No BSSIDs match the filter. The current map selection is unchanged.'}
+                </p>
+              )}
               {selectedDevice && (
                 <p className="device-summary">
                   {threatsByBssid.has(selectedDevice.id) && (
@@ -810,6 +959,26 @@ export default function App() {
                 <h2>Scanner Sightings</h2>
                 <span>{deviceMapData.points.length.toLocaleString()}</span>
               </div>
+              {deviceMapData.points.length > SIGHTING_LIST_LIMIT && (
+                <div className="segmented-control" role="group" aria-label="Sighting order">
+                  <button
+                    aria-pressed={sightingOrder === 'earliest'}
+                    className={sightingOrder === 'earliest' ? 'active' : ''}
+                    onClick={() => setSightingOrder('earliest')}
+                    type="button"
+                  >
+                    Earliest
+                  </button>
+                  <button
+                    aria-pressed={sightingOrder === 'latest'}
+                    className={sightingOrder === 'latest' ? 'active' : ''}
+                    onClick={() => setSightingOrder('latest')}
+                    type="button"
+                  >
+                    Latest
+                  </button>
+                </div>
+              )}
               <div className="sighting-list">
                 {visiblePoints.map((point) => (
                   <button
@@ -825,7 +994,10 @@ export default function App() {
                 ))}
               </div>
               {deviceMapData.points.length > visiblePoints.length && (
-                <p className="list-note">Showing first {visiblePoints.length} sightings. Kepler shows all scanner points.</p>
+                <p className="list-note">
+                  Showing {sightingOrder === 'latest' ? 'latest' : 'earliest'} {visiblePoints.length} sightings.
+                  Kepler shows all scanner points.
+                </p>
               )}
             </section>
           </>
