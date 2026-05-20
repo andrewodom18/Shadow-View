@@ -235,6 +235,86 @@ function compareByTime(first, second) {
   return first.timeMs - second.timeMs || first.rowNumber - second.rowNumber;
 }
 
+function distanceMeters(first, second) {
+  const firstLat = (first.latitude * Math.PI) / 180;
+  const secondLat = (second.latitude * Math.PI) / 180;
+  const deltaLat = secondLat - firstLat;
+  const deltaLon = ((second.longitude - first.longitude) * Math.PI) / 180;
+  const haversine =
+    Math.sin(deltaLat / 2) ** 2 + Math.cos(firstLat) * Math.cos(secondLat) * Math.sin(deltaLon / 2) ** 2;
+  return 6371008.8 * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+}
+
+function medianNumber(values) {
+  const sorted = values.filter(Number.isFinite).slice().sort((first, second) => first - second);
+  if (!sorted.length) {
+    return null;
+  }
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function groupedObservations(observations, distanceThresholdMeters) {
+  if (!Number.isFinite(distanceThresholdMeters) || distanceThresholdMeters <= 0) {
+    return observations.map((observation) => [observation]);
+  }
+
+  const groups = [];
+  for (const observation of observations) {
+    const existingGroup = groups.find(
+      (group) => distanceMeters(observation, group.anchor) <= distanceThresholdMeters
+    );
+    if (existingGroup) {
+      existingGroup.observations.push(observation);
+      continue;
+    }
+
+    groups.push({
+      anchor: observation,
+      observations: [observation]
+    });
+  }
+
+  return groups.map((group) => group.observations);
+}
+
+function observationGroupPoint(group, index) {
+  const orderedGroup = group.slice().sort(compareByTime);
+  const representative = orderedGroup[0];
+  const rows = orderedGroup.map((observation) => observation.rowNumber);
+  const detectionRadii = orderedGroup
+    .map((observation) => Number(observation.detectionRadius ?? observation.accuracy))
+    .filter(Number.isFinite);
+  const groupRadiusMeters = Math.max(
+    0,
+    ...orderedGroup.map((observation) => distanceMeters(representative, observation)).filter(Number.isFinite)
+  );
+
+  return {
+    ...representative.original,
+    ...(orderedGroup.length > 1
+      ? {
+          'Grouped sightings': orderedGroup.length,
+          'Grouped rows': `${Math.min(...rows)}-${Math.max(...rows)}`,
+          'Location group radius (m)': Math.round(groupRadiusMeters)
+        }
+      : {}),
+    __row_number: representative.rowNumber,
+    __device_id: representative.deviceId,
+    __latitude: representative.latitude,
+    __longitude: representative.longitude,
+    __event_time: representative.timeRaw,
+    __event_time_iso: Number.isFinite(representative.timeMs) ? new Date(representative.timeMs).toISOString() : '',
+    __sequence: index + 1,
+    __mgrs: representative.mgrs,
+    __detection_radius_meters: medianNumber(detectionRadii) ?? representative.detectionRadius,
+    __cluster_size: orderedGroup.length,
+    __cluster_first_row: Math.min(...rows),
+    __cluster_last_row: Math.max(...rows),
+    __cluster_radius_meters: Math.round(groupRadiusMeters)
+  };
+}
+
 export function formatTime(ms) {
   if (!Number.isFinite(ms)) {
     return 'Unknown time';
@@ -278,25 +358,16 @@ export function prepareDeviceMapData(observations, deviceId, options = {}) {
       : Array.isArray(options.includedRowNumbers)
         ? new Set(options.includedRowNumbers)
         : null;
-  const points = observations
+  const clusterDistanceMeters = Number(options.clusterDistanceMeters);
+  const rawObservations = observations
     .filter(
       (observation) =>
         observation.deviceId === deviceId && (!includedRowNumbers || includedRowNumbers.has(observation.rowNumber))
     )
     .slice()
-    .sort(compareByTime)
-    .map((observation, index) => ({
-      ...observation.original,
-      __row_number: observation.rowNumber,
-      __device_id: observation.deviceId,
-      __latitude: observation.latitude,
-      __longitude: observation.longitude,
-      __event_time: observation.timeRaw,
-      __event_time_iso: Number.isFinite(observation.timeMs) ? new Date(observation.timeMs).toISOString() : '',
-      __sequence: index + 1,
-      __mgrs: observation.mgrs,
-      __detection_radius_meters: observation.detectionRadius
-    }));
+    .sort(compareByTime);
+  const groups = groupedObservations(rawObservations, clusterDistanceMeters);
+  const points = groups.map(observationGroupPoint);
 
   const segments = [];
   for (let index = 1; index < points.length; index += 1) {
@@ -323,7 +394,12 @@ export function prepareDeviceMapData(observations, deviceId, options = {}) {
     }
   }
 
-  return {points, segments};
+  return {
+    points,
+    segments,
+    rawPointCount: rawObservations.length,
+    clusterDistanceMeters: Number.isFinite(clusterDistanceMeters) && clusterDistanceMeters > 0 ? clusterDistanceMeters : 0
+  };
 }
 
 function createParseState(onProgress) {

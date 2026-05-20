@@ -1,6 +1,13 @@
 export const POINTS_DATASET_ID = 'shadow_view_points';
 export const TRAIL_DATASET_ID = 'shadow_view_trail';
 export const DEFAULT_MAP_STYLE_ID = 'shadow_view_street';
+const DEFAULT_POINT_COLOR = [76, 201, 240];
+const DEFAULT_TRAIL_COLOR = [255, 215, 0];
+const SEVERITY_COLORS = {
+  high: [217, 45, 32],
+  medium: [229, 105, 16],
+  low: [217, 164, 0]
+};
 
 const SATELLITE_MAP_STYLE = {
   version: 8,
@@ -162,11 +169,17 @@ function detectionRadiusConfig(pointData, points) {
   };
 }
 
-export function createKeplerPayload({points, segments, deviceId, mapStyleId = DEFAULT_MAP_STYLE_ID}) {
+function pointColorForSeverity(severity) {
+  return SEVERITY_COLORS[severity] ?? DEFAULT_POINT_COLOR;
+}
+
+export function createKeplerPayload({points, segments, deviceId, severity = '', mapStyleId = DEFAULT_MAP_STYLE_ID}) {
   const pointData = processRows(points);
   const segmentData = processRows(segments.length ? segments : [emptySegment(deviceId)]);
   const center = boundsFor(points);
   const {hasDetectionRadius, sizeConfig} = detectionRadiusConfig(pointData, points);
+  const pointColor = pointColorForSeverity(severity);
+  const trailColor = severity ? pointColor : DEFAULT_TRAIL_COLOR;
 
   return {
     datasets: [
@@ -218,7 +231,7 @@ export function createKeplerPayload({points, segments, deviceId, mapStyleId = DE
             config: {
               dataId: POINTS_DATASET_ID,
               label: 'Detection radius',
-              color: [76, 201, 240],
+              color: pointColor,
               columns: {
                 lat: '__latitude',
                 lng: '__longitude',
@@ -232,7 +245,7 @@ export function createKeplerPayload({points, segments, deviceId, mapStyleId = DE
                 opacity: 0.62,
                 outline: true,
                 thickness: 2,
-                strokeColor: [76, 201, 240],
+                strokeColor: pointColor,
                 filled: false,
                 allowHover: false
               }
@@ -245,7 +258,7 @@ export function createKeplerPayload({points, segments, deviceId, mapStyleId = DE
             config: {
               dataId: POINTS_DATASET_ID,
               label: 'Scanner locations',
-              color: [76, 201, 240],
+              color: pointColor,
               columns: {
                 lat: '__latitude',
                 lng: '__longitude',
@@ -262,13 +275,7 @@ export function createKeplerPayload({points, segments, deviceId, mapStyleId = DE
                 filled: true
               }
             },
-            visualChannels: {
-              colorField: {
-                name: '__sequence',
-                type: 'integer'
-              },
-              colorScale: 'quantile'
-            }
+            visualChannels: {}
           },
           {
             id: 'shadow-view-trail',
@@ -276,7 +283,7 @@ export function createKeplerPayload({points, segments, deviceId, mapStyleId = DE
             config: {
               dataId: TRAIL_DATASET_ID,
               label: 'Scanner trail',
-              color: [255, 215, 0],
+              color: trailColor,
               columns: {
                 lat0: '__lat0',
                 lng0: '__lng0',
@@ -289,13 +296,7 @@ export function createKeplerPayload({points, segments, deviceId, mapStyleId = DE
                 thickness: 3
               }
             },
-            visualChannels: {
-              colorField: {
-                name: '__segment',
-                type: 'integer'
-              },
-              colorScale: 'quantile'
-            }
+            visualChannels: {}
           }
         ],
         layerOrder: ['shadow-view-detection-radius', 'shadow-view-trail', 'shadow-view-points'],

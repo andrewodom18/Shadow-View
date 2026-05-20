@@ -55,7 +55,10 @@ key = "bssid"
 multi_value_separator = " | "
 ```
 
-With this enabled, the cleaner writes one output row per BSSID. If a regular text field has more than one value for the same BSSID, the values are combined into a separated list.
+With this enabled, the cleaner writes one output row per BSSID. `Total Sightings`
+shows how many raw CSV rows were grouped into that BSSID. If a regular text field
+has more than one value for the same BSSID, the values are combined into a
+separated list.
 
 Example output:
 
@@ -112,9 +115,15 @@ Current supported computed columns:
 
 ```toml
 [[output_columns]]
+computed = "total_sightings"
+header = "Total Sightings"
+
+[[output_columns]]
 computed = "unique_mgrs_count"
 header = "MGRS Unique Count"
 ```
+
+`total_sightings` counts raw CSV rows per grouped BSSID.
 
 `unique_mgrs_count` counts unique valid MGRS locations for each grouped BSSID.
 Blank or invalid MGRS values are ignored. Locations within the configured
@@ -129,14 +138,6 @@ distance_threshold_meters = 50
 
 If `[mgrs_unique_count]` is omitted, `distance_threshold_meters` defaults to `50`.
 Set it lower or higher if you want a tighter or looser location range.
-
-This computed column is also supported if a future config needs it:
-
-```toml
-[[output_columns]]
-computed = "total_sightings"
-header = "Total Sightings"
-```
 
 `[sighting_count]` is kept for the non-grouped mode. With the current grouped output, leave `[grouping].key` set to `bssid` unless the grouping behavior itself should change.
 
@@ -190,7 +191,8 @@ This changes only the cleaned output header. It does not change which raw input 
 
 ## Changing Sort Rules
 
-Sorting is controlled by `[sort]`. The current default sorts `MGRS Unique Count` greatest to least.
+Sorting is controlled by `[sort]`. The current default sorts `MGRS Unique Count`
+greatest to least, then `Total Sightings` greatest to least.
 
 Current setting:
 
@@ -199,7 +201,8 @@ Current setting:
 enabled = true
 case_sensitive = false
 rules = [
-  { column = "MGRS Unique Count", direction = "desc", value_type = "number" }
+  { column = "MGRS Unique Count", direction = "desc", value_type = "number" },
+  { column = "Total Sightings", direction = "desc", value_type = "number" }
 ]
 ```
 

@@ -225,14 +225,19 @@ Use that file to change:
 
 - Raw CSV column aliases, such as renaming `Accuracy` to `Accuracy Meters`.
 - Output columns and output header names.
-- Sorting rules. The current default sorts `MGRS Unique Count` greatest to least.
+- Sorting rules. The current default sorts `MGRS Unique Count` greatest to least,
+  then `Total Sightings` greatest to least.
 - The grouping key used to condense raw rows.
 - The MGRS unique-location distance threshold. The default is `50` meters,
   matching leadership's 40-50 meter range.
 - HTML and Excel color-bucket settings.
 - Rogue Tower cell color rules for Excel output.
 
-The current output is condensed to one row per `BSSID`. `MGRS Unique Count` counts unique valid scanner MGRS locations for that BSSID, ignoring blank or invalid MGRS values and treating locations within the configured meter threshold as the same location.
+The current output is condensed to one row per `BSSID`. `Total Sightings` shows
+how many raw rows were grouped into that BSSID, and `MGRS Unique Count` counts
+unique valid scanner MGRS locations for that BSSID, ignoring blank or invalid
+MGRS values and treating locations within the configured meter threshold as the
+same location.
 
 ## Project Layout
 

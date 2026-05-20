@@ -1,5 +1,5 @@
 import {KeplerGl} from '@kepler.gl/components';
-import {addDataToMap, onLayerClick, removeDataset} from '@kepler.gl/actions';
+import {addDataToMap, removeDataset, updateMap} from '@kepler.gl/actions';
 import {
   AlertTriangle,
   ChevronDown,
@@ -24,10 +24,7 @@ import {CUSTOM_MAP_STYLES, POINTS_DATASET_ID, TRAIL_DATASET_ID, createKeplerPayl
 import {
   KEPLER_MAP_ID,
   clickedPoint,
-  keplerInstance,
-  mapClickInfoForPoint,
-  pointIndexByRowNumber,
-  pointLayerIndex
+  keplerInstance
 } from './mapSelection.js';
 import {countBySeverity, deviceMatchesSearch, searchTerm, threatMatchesSearch} from './searchFilters.js';
 import {clearSavedThreatConfig, loadThreatConfig, normalizeThreatConfig, saveThreatConfig} from './threatConfig.js';
@@ -35,6 +32,8 @@ import {analyzeThreats} from './threatDetection.js';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN || 'shadow-view-local';
 const SIGHTING_LIST_LIMIT = 150;
+const SELECTED_POINT_MIN_ZOOM = 17;
+const WEB_MERCATOR_TILE_SIZE = 512;
 const CSV_SESSION_STORAGE_KEY = 'shadow-view-current-csv-id-v1';
 const CSV_SESSION_DB_NAME = 'shadow-view-csv-session';
 const CSV_SESSION_DB_VERSION = 1;
@@ -46,6 +45,21 @@ function getCsvSessionId() {
   } catch {
     return null;
   }
+}
+
+function hasDevSampleCsvRequest() {
+  if (!import.meta.env.DEV) {
+    return false;
+  }
+  try {
+    return Boolean(new URLSearchParams(window.location.search).get('sampleCsv'));
+  } catch {
+    return false;
+  }
+}
+
+function shouldAttemptCsvSessionRestore() {
+  return !hasDevSampleCsvRequest() && Boolean(getCsvSessionId());
 }
 
 function setCsvSessionId(id) {
@@ -263,11 +277,36 @@ function OutputToggle({checked, disabled, icon: Icon, label, onChange}) {
   );
 }
 
+function SidebarDropdown({ariaLive, children, className = '', count, defaultOpen = true, icon: Icon, title}) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+
+  return (
+    <section className={`panel sidebar-dropdown-panel ${className}`.trim()} aria-live={ariaLive}>
+      <details className="sidebar-dropdown" open={isOpen} onToggle={(event) => setIsOpen(event.currentTarget.open)}>
+        <summary>
+          {Icon && <Icon aria-hidden="true" size={15} />}
+          <span className="sidebar-dropdown-title">{title}</span>
+          {count !== undefined && <strong className="sidebar-dropdown-count">{count}</strong>}
+          <ChevronDown aria-hidden="true" className="sidebar-dropdown-caret" size={18} />
+        </summary>
+        <div className="sidebar-dropdown-content">{children}</div>
+      </details>
+    </section>
+  );
+}
+
 function severityLabel(severity) {
   if (!severity) {
     return 'Normal';
   }
   return `${severity[0].toUpperCase()}${severity.slice(1)}`;
+}
+
+function selectedDeviceTimeRange(device) {
+  if (device?.firstTimeMs === null || device?.firstTimeMs === undefined) {
+    return 'Unknown';
+  }
+  return `${formatTime(device.firstTimeMs)} to ${formatTime(device.lastTimeMs)}`;
 }
 
 function formatDetectionRadius(value) {
@@ -278,7 +317,8 @@ function formatDetectionRadius(value) {
 function scannerSightingMeta(point) {
   const location = `${point.__latitude.toFixed(6)}, ${point.__longitude.toFixed(6)}`;
   const radius = formatDetectionRadius(point.__detection_radius_meters);
-  return radius ? `${location} - ${radius}` : location;
+  const grouped = point.__cluster_size > 1 ? `${point.__cluster_size.toLocaleString()} sightings` : '';
+  return [location, radius, grouped].filter(Boolean).join(' - ');
 }
 
 function visibleSightingPoints(points, order) {
@@ -286,6 +326,52 @@ function visibleSightingPoints(points, order) {
     return points.slice(-SIGHTING_LIST_LIMIT).reverse();
   }
   return points.slice(0, SIGHTING_LIST_LIMIT);
+}
+
+function mercatorWorldPoint(longitude, latitude, zoom) {
+  const clampedLatitude = Math.max(-85.05112878, Math.min(85.05112878, latitude));
+  const scale = WEB_MERCATOR_TILE_SIZE * 2 ** zoom;
+  const sineLatitude = Math.sin((clampedLatitude * Math.PI) / 180);
+
+  return {
+    x: ((longitude + 180) / 360) * scale,
+    y: (0.5 - Math.log((1 + sineLatitude) / (1 - sineLatitude)) / (4 * Math.PI)) * scale
+  };
+}
+
+function selectedPointScreenPosition(point, mapState, mapSize) {
+  const width = Number(mapState?.width) || mapSize.width;
+  const height = Number(mapState?.height) || mapSize.height;
+  const zoom = Number(mapState?.zoom);
+  const centerLatitude = Number(mapState?.latitude);
+  const centerLongitude = Number(mapState?.longitude);
+
+  if (
+    !point ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0 ||
+    !Number.isFinite(zoom) ||
+    !Number.isFinite(centerLatitude) ||
+    !Number.isFinite(centerLongitude) ||
+    !Number.isFinite(point.__latitude) ||
+    !Number.isFinite(point.__longitude)
+  ) {
+    return null;
+  }
+
+  const center = mercatorWorldPoint(centerLongitude, centerLatitude, zoom);
+  const selected = mercatorWorldPoint(point.__longitude, point.__latitude, zoom);
+  const x = selected.x - center.x + width / 2;
+  const y = selected.y - center.y + height / 2;
+  const margin = 80;
+
+  if (!Number.isFinite(x) || !Number.isFinite(y) || x < -margin || y < -margin || x > width + margin || y > height + margin) {
+    return null;
+  }
+
+  return {x, y};
 }
 
 function SettingNumber({disabled, help, label, min = 0, step = 1, value, onChange}) {
@@ -348,11 +434,11 @@ function ThreatSettings({config, disabled, onChange, onReset}) {
   };
 
   return (
-    <details className="threat-settings">
+    <details className="sidebar-dropdown threat-settings">
       <summary>
         <SlidersHorizontal aria-hidden="true" size={15} />
-        <span>Threat Criteria</span>
-        <ChevronDown aria-hidden="true" className="threat-settings-caret" size={18} />
+        <span className="sidebar-dropdown-title">Threat Criteria</span>
+        <ChevronDown aria-hidden="true" className="sidebar-dropdown-caret" size={18} />
       </summary>
       <div className="settings-grid criteria-basics">
         <label
@@ -449,11 +535,13 @@ function ThreatPanel({
   const hasDeviceFilter = hasSearch || severityFilter !== 'all';
 
   return (
-    <section className="panel review-panel" aria-live="polite">
-      <div className="section-heading">
-        <h2>BSSID Review</h2>
-        <span>{totalDeviceCount.toLocaleString()}</span>
-      </div>
+    <SidebarDropdown
+      ariaLive="polite"
+      className="review-panel"
+      count={totalDeviceCount.toLocaleString()}
+      icon={AlertTriangle}
+      title="BSSID Review"
+    >
       <div className="severity-filter" role="group" aria-label="Threat severity filter">
         {['all', 'high', 'medium', 'low'].map((severity) => {
           const label = severity === 'all' ? 'All BSSIDs' : severityLabel(severity);
@@ -507,19 +595,26 @@ function ThreatPanel({
           </p>
         )}
         {selectedDevice && (
-          <p className="device-summary">
-            {selectedDeviceThreat && (
-              <>
-                <span className={`severity-badge inline ${selectedDeviceThreat.severity}`}>
+          <div className={`device-summary-card ${selectedDeviceThreat?.severity ?? ''}`.trim()}>
+            <div>
+              <span>Severity</span>
+              {selectedDeviceThreat ? (
+                <strong className={`severity-badge ${selectedDeviceThreat.severity}`}>
                   {severityLabel(selectedDeviceThreat.severity)}
-                </span>{' '}
-              </>
-            )}
-            {selectedDevice.count.toLocaleString()} sightings
-            {selectedDevice.firstTimeMs !== null && (
-              <> from {formatTime(selectedDevice.firstTimeMs)} to {formatTime(selectedDevice.lastTimeMs)}</>
-            )}
-          </p>
+                </strong>
+              ) : (
+                <strong>Normal</strong>
+              )}
+            </div>
+            <div>
+              <span>Sightings</span>
+              <strong>{selectedDevice.count.toLocaleString()}</strong>
+            </div>
+            <div className="wide">
+              <span>Observed</span>
+              <strong>{selectedDeviceTimeRange(selectedDevice)}</strong>
+            </div>
+          </div>
         )}
       </div>
       <div className="panel-subheading">
@@ -552,7 +647,7 @@ function ThreatPanel({
           ))}
         </div>
       )}
-    </section>
+    </SidebarDropdown>
   );
 }
 
@@ -579,22 +674,91 @@ function DetailTable({row}) {
   );
 }
 
-function MapScopeStatus({pointCount, selectedDevice, selectedMapThreat, selectedPoint}) {
-  if (!selectedDevice) {
+function MapScopeStatus({
+  clusterDistanceMeters,
+  pointCount,
+  rawPointCount,
+  selectedDevice,
+  selectedDeviceThreat,
+  selectedMapThreat,
+  selectedPoint
+}) {
+  if (!selectedDevice || pointCount === 0) {
     return null;
   }
 
-  const severity = selectedMapThreat?.severity ?? '';
-  const mode = selectedMapThreat ? 'Threat-qualified points' : 'Scanner points';
+  const severity = selectedDeviceThreat?.severity ?? '';
+  const scope = selectedMapThreat ? 'qualifying threat scans' : 'scanner locations';
+  const rawCount = Number.isFinite(rawPointCount) ? rawPointCount : pointCount;
+  const distanceCopy =
+    !selectedMapThreat && Number.isFinite(clusterDistanceMeters) && clusterDistanceMeters > 0
+      ? ` (${Math.round(clusterDistanceMeters).toLocaleString()}m groups)`
+      : '';
+  const countCopy =
+    selectedMapThreat || rawCount === pointCount
+      ? `${pointCount.toLocaleString()} ${scope}`
+      : `${pointCount.toLocaleString()} ${scope} from ${rawCount.toLocaleString()} sightings`;
 
   return (
     <div className={`map-scope-status ${severity}`.trim()} aria-live="polite">
-      <span>Map data</span>
+      <span>Selected BSSID</span>
       <strong>{selectedDevice.id}</strong>
       <small>
-        {pointCount.toLocaleString()} {mode.toLowerCase()}
+        {countCopy}
+        {distanceCopy}
         {selectedPoint ? ` | Row ${selectedPoint.__row_number}` : ''}
       </small>
+    </div>
+  );
+}
+
+function MapSelectionCard({point, selectedMapThreat}) {
+  if (!point) {
+    return null;
+  }
+
+  return (
+    <div className="map-selection-card" aria-live="polite">
+      <span>{selectedMapThreat ? 'Selected Scan' : 'Selected Location'}</span>
+      <strong>Row {point.__row_number}</strong>
+      <small>{point.__event_time || 'Unknown time'}</small>
+      <small>{scannerSightingMeta(point)}</small>
+    </div>
+  );
+}
+
+function SelectedMapMarker({onSelect, point, position, selectedDeviceThreat}) {
+  if (!point || !position) {
+    return null;
+  }
+
+  const severity = selectedDeviceThreat?.severity ?? '';
+
+  return (
+    <button
+      aria-label={`Selected map point, row ${point.__row_number}`}
+      className={`selected-map-marker ${severity}`.trim()}
+      onClick={() => onSelect(point)}
+      style={{left: `${position.x}px`, top: `${position.y}px`}}
+      title={`Selected row ${point.__row_number}`}
+      type="button"
+    >
+      <span aria-hidden="true" />
+      <strong>Row {point.__row_number}</strong>
+    </button>
+  );
+}
+
+function RestoreCsvModal() {
+  return (
+    <div className="restore-modal-backdrop" role="status" aria-live="polite">
+      <div className="restore-modal">
+        <Loader2 aria-hidden="true" className="spin" size={26} />
+        <div>
+          <h2>Restoring Previous CSV</h2>
+          <p>Reloading the saved map data from this browser. Your data should appear shortly.</p>
+        </div>
+      </div>
     </div>
   );
 }
@@ -602,7 +766,7 @@ function MapScopeStatus({pointCount, selectedDevice, selectedMapThreat, selected
 export default function App() {
   const dispatch = useDispatch();
   const clickedMapObject = useSelector((state) => keplerInstance(state)?.visState?.clicked ?? null);
-  const selectedPointLayerIndex = useSelector((state) => pointLayerIndex(keplerInstance(state)));
+  const currentMapState = useSelector((state) => keplerInstance(state)?.mapState ?? null);
   const [mapRef, mapSize] = useElementSize();
   const [selectedFile, setSelectedFile] = useState(null);
   const [parsedCsv, setParsedCsv] = useState(null);
@@ -610,10 +774,13 @@ export default function App() {
   const [selectedThreatBssid, setSelectedThreatBssid] = useState('');
   const [deviceMapData, setDeviceMapData] = useState({points: [], segments: []});
   const [selectedPoint, setSelectedPoint] = useState(null);
-  const [status, setStatus] = useState('Choose a CSV to map detections.');
+  const [status, setStatus] = useState(() =>
+    shouldAttemptCsvSessionRestore() ? 'Restoring previous CSV...' : 'Choose a CSV to map detections.'
+  );
   const [parseProgress, setParseProgress] = useState(null);
   const [csvReadSummary, setCsvReadSummary] = useState(null);
   const [isParsing, setIsParsing] = useState(false);
+  const [isRestoringCsv, setIsRestoringCsv] = useState(() => shouldAttemptCsvSessionRestore());
   const [error, setError] = useState('');
   const [detectedCleanerFormat, setDetectedCleanerFormat] = useState(null);
   const [cleanOutputs, setCleanOutputs] = useState({csv: true, xlsx: true, html: false});
@@ -629,6 +796,7 @@ export default function App() {
   const [detailsCollapsed, setDetailsCollapsed] = useState(false);
   const fileInputRef = useRef(null);
   const loadRequestRef = useRef(0);
+  const sightingButtonRefs = useRef(new Map());
 
   const selectedDevice = useMemo(
     () => parsedCsv?.devices.find((device) => device.id === selectedDeviceId) ?? null,
@@ -642,7 +810,8 @@ export default function App() {
     !isParsing && csvReadSummary?.elapsedMs !== null && csvReadSummary?.elapsedMs !== undefined
       ? `Time taken: ${(csvReadSummary.elapsedMs / 1000).toFixed(2)} seconds`
       : '';
-  const showStatusCard = isParsing || Boolean(error);
+  const showStatusCard = isParsing || isRestoringCsv || Boolean(error);
+  const isLoadingCsv = isParsing || isRestoringCsv;
   const hasCleanOutput = cleanOutputs.csv || cleanOutputs.xlsx || cleanOutputs.html;
   const threats = useMemo(
     () => (parsedCsv ? analyzeThreats(parsedCsv.observations, threatConfig) : []),
@@ -726,6 +895,7 @@ export default function App() {
     loadRequestRef.current += 1;
     setSelectedFile(null);
     setIsParsing(true);
+    setIsRestoringCsv(false);
     setError('');
     setCleanError('');
     setDownloadInfo(null);
@@ -771,6 +941,7 @@ export default function App() {
     setParseProgress(null);
     setCsvReadSummary(null);
     setIsParsing(false);
+    setIsRestoringCsv(false);
     setError('');
     setCleanError('');
     setDownloadInfo(null);
@@ -829,16 +1000,31 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('sampleCsv')) {
+    if (hasDevSampleCsvRequest()) {
+      setIsRestoringCsv(false);
       return undefined;
     }
 
     let cancelled = false;
     const restoreRequestId = loadRequestRef.current;
+    const sessionId = getCsvSessionId();
+    if (!sessionId) {
+      setIsRestoringCsv(false);
+      return undefined;
+    }
+
+    setIsRestoringCsv(true);
+    setStatus('Restoring previous CSV...');
+    setError('');
 
     restoreCsvSessionFromStorage()
       .then((session) => {
-        if (!session || cancelled || loadRequestRef.current !== restoreRequestId) {
+        if (cancelled || loadRequestRef.current !== restoreRequestId) {
+          return;
+        }
+        setIsRestoringCsv(false);
+        if (!session) {
+          setStatus('Choose a CSV to map detections.');
           return;
         }
 
@@ -860,7 +1046,12 @@ export default function App() {
         }
       })
       .catch((caughtError) => {
-        if (cancelled || !getCsvSessionId()) {
+        if (cancelled) {
+          return;
+        }
+        setIsRestoringCsv(false);
+        if (!getCsvSessionId()) {
+          setStatus('Choose a CSV to map detections.');
           return;
         }
         console.warn('Could not restore CSV from session storage.', caughtError);
@@ -1042,26 +1233,28 @@ export default function App() {
       return undefined;
     }
 
+    const clusterDistanceMeters = selectedMapThreat ? 0 : threatConfig.sameLocationMeters;
     const nextMapData = prepareDeviceMapData(parsedCsv.observations, selectedDeviceId, {
-      includedRowNumbers: selectedMapThreat?.qualifyingRowNumbers
+      includedRowNumbers: selectedMapThreat?.qualifyingRowNumbers,
+      clusterDistanceMeters
     });
     setDeviceMapData(nextMapData);
-    const payload = createKeplerPayload({...nextMapData, deviceId: selectedDeviceId});
+    const payload = createKeplerPayload({
+      ...nextMapData,
+      deviceId: selectedDeviceId,
+      severity: selectedDeviceThreat?.severity
+    });
     dispatch(addDataToMap(payload));
     const timer = window.setTimeout(() => {
       dispatch(addDataToMap(payload));
     }, 500);
 
     return () => window.clearTimeout(timer);
-  }, [dispatch, parsedCsv, selectedDeviceId, selectedMapThreat]);
+  }, [dispatch, parsedCsv, selectedDeviceId, selectedDeviceThreat, selectedMapThreat, threatConfig.sameLocationMeters]);
 
   const visiblePoints = useMemo(
     () => visibleSightingPoints(deviceMapData.points, sightingOrder),
     [deviceMapData.points, sightingOrder]
-  );
-  const pointIndexesByRowNumber = useMemo(
-    () => pointIndexByRowNumber(deviceMapData.points),
-    [deviceMapData.points]
   );
   const selectedPointOutsideVisible = Boolean(
     selectedPoint && !visiblePoints.some((point) => point.__row_number === selectedPoint.__row_number)
@@ -1069,6 +1262,51 @@ export default function App() {
   const sightingListPoints = useMemo(
     () => (selectedPointOutsideVisible ? [selectedPoint, ...visiblePoints] : visiblePoints),
     [selectedPoint, selectedPointOutsideVisible, visiblePoints]
+  );
+  const selectedMarkerPosition = useMemo(
+    () => selectedPointScreenPosition(selectedPoint, currentMapState, mapSize),
+    [currentMapState, mapSize, selectedPoint]
+  );
+  const setSightingButtonRef = useCallback((rowNumber, element) => {
+    if (element) {
+      sightingButtonRefs.current.set(rowNumber, element);
+    } else {
+      sightingButtonRefs.current.delete(rowNumber);
+    }
+  }, []);
+  const focusPointOnMap = useCallback(
+    (point) => {
+      if (!point || !Number.isFinite(point.__latitude) || !Number.isFinite(point.__longitude)) {
+        return;
+      }
+
+      const currentZoom = Number(currentMapState?.zoom);
+      const viewport = {
+        latitude: point.__latitude,
+        longitude: point.__longitude,
+        zoom: Math.min(19, Math.max(Number.isFinite(currentZoom) ? currentZoom : 0, SELECTED_POINT_MIN_ZOOM)),
+        bearing: 0,
+        pitch: 0,
+        dragRotate: false
+      };
+      if (mapSize.width > 0 && mapSize.height > 0) {
+        viewport.width = mapSize.width;
+        viewport.height = mapSize.height;
+      }
+
+      dispatch(updateMap(viewport, 0));
+    },
+    [currentMapState, dispatch, mapSize]
+  );
+  const selectSightingPoint = useCallback(
+    (point, options = {}) => {
+      setSelectedPoint(point);
+      setDetailsCollapsed(false);
+      if (options.focusMap) {
+        focusPointOnMap(point);
+      }
+    },
+    [focusPointOnMap]
   );
 
   useEffect(() => {
@@ -1081,23 +1319,28 @@ export default function App() {
       return;
     }
 
+    setDetailsCollapsed(false);
     setSelectedPoint((current) => (current?.__row_number === point.__row_number ? current : point));
   }, [clickedMapObject, deviceMapData.points]);
 
   useEffect(() => {
     if (!selectedPoint) {
-      return;
+      return undefined;
     }
 
-    const pointIndex = pointIndexesByRowNumber.get(selectedPoint.__row_number);
-    const clickInfo = mapClickInfoForPoint(selectedPoint, pointIndex, selectedPointLayerIndex);
-    if (clickInfo) {
-      dispatch(onLayerClick(clickInfo));
-    }
-  }, [dispatch, pointIndexesByRowNumber, selectedPoint, selectedPointLayerIndex]);
+    const frame = window.requestAnimationFrame(() => {
+      sightingButtonRefs.current.get(selectedPoint.__row_number)?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest'
+      });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [selectedPoint, sightingListPoints]);
 
   return (
     <main className="app-shell">
+      {isRestoringCsv && <RestoreCsvModal />}
       <aside className="sidebar">
         <div className="brand-row">
           <div className="brand-mark">SV</div>
@@ -1145,16 +1388,16 @@ export default function App() {
             <>
               <div>
                 <h2>CSV Upload</h2>
-                <p>Add a Shadow View CSV</p>
+                <p>{isRestoringCsv ? 'Restoring saved CSV' : 'Add a Shadow View CSV'}</p>
               </div>
               <button
                 className="primary-button"
-                disabled={isParsing}
+                disabled={isLoadingCsv}
                 onClick={() => fileInputRef.current?.click()}
                 type="button"
               >
-                {isParsing ? <Loader2 aria-hidden="true" className="spin" size={16} /> : <Upload aria-hidden="true" size={16} />}
-                <span>{isParsing ? 'Reading CSV...' : 'Choose CSV'}</span>
+                {isLoadingCsv ? <Loader2 aria-hidden="true" className="spin" size={16} /> : <Upload aria-hidden="true" size={16} />}
+                <span>{isRestoringCsv ? 'Restoring...' : isParsing ? 'Reading CSV...' : 'Choose CSV'}</span>
               </button>
             </>
           )}
@@ -1162,9 +1405,10 @@ export default function App() {
 
         {showStatusCard && (
           <section className="status-card" aria-live="polite">
-            {isParsing && status && <p>{status}</p>}
+            {isLoadingCsv && status && <p>{status}</p>}
+            {isRestoringCsv && <div className="progress-copy">Your saved CSV data is still on this device.</div>}
             {isParsing && csvProgressText && <div className="progress-copy">{csvProgressText}</div>}
-            {isParsing && <div className="progress-bar"><span /></div>}
+            {isLoadingCsv && <div className="progress-bar"><span /></div>}
             {error && <div className="error-text">{error}</div>}
           </section>
         )}
@@ -1207,14 +1451,13 @@ export default function App() {
 
             <section className="panel sightings-panel">
               <div className="section-heading">
-                <h2>{selectedMapThreat ? 'Threat Sightings' : 'Scanner Sightings'}</h2>
+                <h2>{selectedMapThreat ? 'Threat Scans' : 'Scanner Locations'}</h2>
                 <span>{deviceMapData.points.length.toLocaleString()}</span>
               </div>
               {selectedMapThreat && (
                 <div className="scope-note">
                   <p>
-                    Showing {selectedMapThreat.metrics.qualifyingScanCount.toLocaleString()} qualifying sightings used
-                    for this threat.
+                    Showing {deviceMapData.points.length.toLocaleString()} qualifying scans used for this threat.
                   </p>
                   <button className="tertiary-button" onClick={() => setSelectedThreatBssid('')} type="button">
                     Show all sightings
@@ -1247,9 +1490,13 @@ export default function App() {
                   const isPinned = selectedPointOutsideVisible && isActive;
                   return (
                     <button
+                      aria-current={isActive ? 'true' : undefined}
                       className={isActive ? `sighting active${isPinned ? ' pinned' : ''}` : 'sighting'}
+                      data-row-number={point.__row_number}
+                      data-selected={isActive ? 'true' : undefined}
                       key={point.__row_number}
-                      onClick={() => setSelectedPoint(point)}
+                      onClick={() => selectSightingPoint(point, {focusMap: true})}
+                      ref={(element) => setSightingButtonRef(point.__row_number, element)}
                       type="button"
                     >
                       <strong>#{point.__sequence}</strong>
@@ -1264,8 +1511,9 @@ export default function App() {
               )}
               {deviceMapData.points.length > visiblePoints.length && (
                 <p className="list-note">
-                  Showing {sightingOrder === 'newest' ? 'newest' : 'oldest'} {visiblePoints.length} sightings.
-                  Kepler shows all {selectedMapThreat ? 'threat-qualified points' : 'scanner points'}.
+                  Showing {sightingOrder === 'newest' ? 'newest' : 'oldest'} {visiblePoints.length}{' '}
+                  {selectedMapThreat ? 'scans' : 'locations'}. Map shows all{' '}
+                  {selectedMapThreat ? 'qualifying threat scans' : 'grouped scanner locations'}.
                 </p>
               )}
             </section>
@@ -1366,13 +1614,30 @@ export default function App() {
             width={mapSize.width}
             height={mapSize.height}
           />
+          <SelectedMapMarker
+            onSelect={selectSightingPoint}
+            point={selectedPoint}
+            position={selectedMarkerPosition}
+            selectedDeviceThreat={selectedDeviceThreat}
+          />
           <MapScopeStatus
+            clusterDistanceMeters={deviceMapData.clusterDistanceMeters}
             pointCount={deviceMapData.points.length}
+            rawPointCount={deviceMapData.rawPointCount}
             selectedDevice={selectedDevice}
+            selectedDeviceThreat={selectedDeviceThreat}
             selectedMapThreat={selectedMapThreat}
             selectedPoint={selectedPoint}
           />
-          {!parsedCsv && (
+          <MapSelectionCard point={selectedPoint} selectedMapThreat={selectedMapThreat} />
+          {isRestoringCsv && (
+            <div className="map-empty map-loading">
+              <Loader2 aria-hidden="true" className="spin" size={24} />
+              <h2>Restoring previous CSV</h2>
+              <p>Reloading saved map data from this browser.</p>
+            </div>
+          )}
+          {!parsedCsv && !isRestoringCsv && (
             <div className="map-empty">
               <h2>No CSV loaded</h2>
               <p>Load a Shadow View CSV to map scanner detections.</p>

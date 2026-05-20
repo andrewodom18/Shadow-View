@@ -206,6 +206,7 @@ class ShadowViewCleanerTests(unittest.TestCase):
                 list(rows[0]),
                 [
                     "BSSID",
+                    "Total Sightings",
                     "SSID",
                     "Accuracy",
                     "Event Time",
@@ -221,6 +222,7 @@ class ShadowViewCleanerTests(unittest.TestCase):
 
             first = rows[0]
             self.assertEqual(first["BSSID"], "dd:ee:ff:00:00:02")
+            self.assertEqual(first["Total Sightings"], "3")
             self.assertEqual(first["SSID"], "TRUCK_WIFI")
             self.assertEqual(first["Accuracy"], "6")
             self.assertEqual(first["Device Name"], "Mobile AP")
@@ -231,6 +233,7 @@ class ShadowViewCleanerTests(unittest.TestCase):
 
             second = rows[1]
             self.assertEqual(second["BSSID"], "aa:bb:cc:00:00:01")
+            self.assertEqual(second["Total Sightings"], "3")
             self.assertEqual(second["SSID"], "NET_ONE | NET_TWO")
             self.assertEqual(second["Accuracy"], "11")
             self.assertEqual(second["MGRS Unique Count"], "2")
@@ -241,6 +244,7 @@ class ShadowViewCleanerTests(unittest.TestCase):
 
             third = rows[2]
             self.assertEqual(third["BSSID"], "11:22:33:44:55:66")
+            self.assertEqual(third["Total Sightings"], "2")
             self.assertEqual(third["Accuracy"], "9")
 
     def test_mgrs_unique_count_collapses_locations_within_default_distance(

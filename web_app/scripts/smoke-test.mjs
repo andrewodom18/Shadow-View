@@ -50,9 +50,18 @@ assert.throws(
 const mapData = prepareDeviceMapData(parsed.observations, 'aa:bb:cc:00:00:01');
 assert.equal(mapData.points.length, 2);
 assert.equal(mapData.segments.length, 1);
+assert.equal(mapData.rawPointCount, 2);
 assert.equal(mapData.points[0].Bssid, 'aa:bb:cc:00:00:01');
 assert.equal(mapData.points[0]['Accuracy'], '26');
 assert.equal(mapData.points[0]['Accuracy (2)'], '');
+const groupedMapData = prepareDeviceMapData(parsed.observations, 'aa:bb:cc:00:00:01', {
+  clusterDistanceMeters: 200
+});
+assert.equal(groupedMapData.points.length, 1);
+assert.equal(groupedMapData.rawPointCount, 2);
+assert.equal(groupedMapData.points[0]['Grouped sightings'], 2);
+assert.equal(groupedMapData.points[0].__cluster_size, 2);
+assert.equal(groupedMapData.clusterDistanceMeters, 200);
 assert.equal(clickedPointIndex({picked: true, index: 1, layer: {props: {id: POINTS_LAYER_ID}}}), 1);
 assert.equal(clickedPointIndex({picked: true, object: {index: 0}, layer: {props: {id: POINTS_LAYER_ID}}}), 0);
 assert.equal(clickedPointIndex({picked: true, index: 0, layer: {props: {id: 'other-layer'}}}), null);
@@ -92,6 +101,12 @@ assert.deepEqual(payload.config.visState.layerOrder, [
   'shadow-view-trail',
   'shadow-view-points'
 ]);
+assert.deepEqual(payload.config.visState.layers[1].config.color, [76, 201, 240]);
+assert.deepEqual(payload.config.visState.layers[2].config.color, [255, 215, 0]);
+const highSeverityPayload = createKeplerPayload({...mapData, deviceId: 'aa:bb:cc:00:00:01', severity: 'high'});
+assert.deepEqual(highSeverityPayload.config.visState.layers[0].config.color, [217, 45, 32]);
+assert.deepEqual(highSeverityPayload.config.visState.layers[1].config.color, [217, 45, 32]);
+assert.deepEqual(highSeverityPayload.config.visState.layers[2].config.color, [217, 45, 32]);
 assert.ok(
   payload.config.visState.interactionConfig.tooltip.config.fieldsToShow[POINTS_DATASET_ID].every(
     (field) => !field.name.startsWith('__')
@@ -159,8 +174,14 @@ const allThreatDeviceMapData = prepareDeviceMapData(threatParsed.observations, t
 const qualifyingThreatMapData = prepareDeviceMapData(threatParsed.observations, threats[0].bssid, {
   includedRowNumbers: threats[0].qualifyingRowNumbers
 });
+const groupedQualifyingThreatMapData = prepareDeviceMapData(threatParsed.observations, threats[0].bssid, {
+  includedRowNumbers: threats[0].qualifyingRowNumbers,
+  clusterDistanceMeters: focusedThreatConfig.sameLocationMeters
+});
 assert.equal(allThreatDeviceMapData.points.length, 7);
 assert.equal(qualifyingThreatMapData.points.length, 6);
+assert.equal(groupedQualifyingThreatMapData.rawPointCount, qualifyingThreatMapData.points.length);
+assert.ok(groupedQualifyingThreatMapData.points.length < qualifyingThreatMapData.points.length);
 assert.ok(qualifyingThreatMapData.points.every((point) => Number(point.Accuracy) <= focusedThreatConfig.maxDetectionRadiusMeters));
 assert.match(threats[0].reason, /scanner location/);
 assert.match(threats[0].reason, /detection radius/);

@@ -112,7 +112,6 @@ h2 {
 
 .brand-row p,
 .panel p,
-.device-summary,
 .details-hint,
 .empty-state,
 .list-note {
@@ -294,6 +293,45 @@ h2 {
 .status-card {
   display: grid;
   gap: 8px;
+}
+
+.restore-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  background: rgba(16, 24, 40, 0.32);
+  backdrop-filter: blur(3px);
+  padding: 18px;
+}
+
+.restore-modal {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  width: min(420px, 100%);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  padding: 18px;
+}
+
+.restore-modal svg {
+  color: var(--accent);
+}
+
+.restore-modal h2 {
+  font-size: 17px;
+}
+
+.restore-modal p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .progress-copy {
@@ -508,10 +546,6 @@ select {
   color: #8a97aa;
 }
 
-.device-summary {
-  margin-top: 10px;
-}
-
 .review-panel {
   display: grid;
   gap: 10px;
@@ -520,6 +554,47 @@ select {
 .device-picker {
   display: grid;
   gap: 8px;
+}
+
+.device-summary-card {
+  display: grid;
+  grid-template-columns: minmax(0, 0.7fr) minmax(0, 0.8fr);
+  gap: 8px 14px;
+  padding: 4px 0 2px;
+}
+
+.device-summary-card > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.device-summary-card > .wide {
+  grid-column: 1 / -1;
+}
+
+.device-summary-card span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.device-summary-card strong {
+  min-width: 0;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.device-summary-card .wide strong {
+  color: var(--muted);
+  font-weight: 650;
+}
+
+.device-summary-card .severity-badge {
+  justify-self: start;
 }
 
 .panel-subheading {
@@ -1012,6 +1087,113 @@ select {
   font-size: 12px;
 }
 
+.map-selection-card {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 5;
+  display: grid;
+  gap: 3px;
+  max-width: min(380px, calc(100% - 24px));
+  border: 1px solid rgba(214, 221, 232, 0.92);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 14px 32px rgba(16, 24, 40, 0.16);
+  color: var(--text);
+  padding: 10px 12px;
+  pointer-events: none;
+}
+
+.map-selection-card span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.map-selection-card strong,
+.map-selection-card small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.map-selection-card strong {
+  font-size: 13px;
+}
+
+.map-selection-card small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.selected-map-marker {
+  --marker-color: var(--accent);
+  position: absolute;
+  z-index: 6;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  overflow: visible;
+  padding: 0;
+  pointer-events: auto;
+  transform: translate(-50%, -50%);
+}
+
+.selected-map-marker:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--marker-color) 42%, white);
+  outline-offset: 8px;
+}
+
+.selected-map-marker.high {
+  --marker-color: var(--severity-high);
+}
+
+.selected-map-marker.medium {
+  --marker-color: var(--severity-medium);
+}
+
+.selected-map-marker.low {
+  --marker-color: var(--severity-low);
+}
+
+.selected-map-marker span {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: block;
+  width: 28px;
+  height: 28px;
+  border: 3px solid #fff;
+  border-radius: 999px;
+  background: var(--marker-color);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--marker-color) 78%, transparent),
+    0 0 0 11px color-mix(in srgb, var(--marker-color) 20%, transparent),
+    0 14px 24px rgba(16, 24, 40, 0.24);
+  transform: translate(-50%, -50%);
+}
+
+.selected-map-marker strong {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 50%;
+  border: 1px solid rgba(214, 221, 232, 0.92);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 10px 20px rgba(16, 24, 40, 0.16);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+  padding: 5px 8px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
 .map-empty {
   position: absolute;
   inset: 18px;
@@ -1027,6 +1209,15 @@ select {
 
 .map-empty p {
   color: var(--muted);
+}
+
+.map-loading {
+  background: color-mix(in srgb, var(--panel) 86%, transparent);
+}
+
+.map-loading svg {
+  justify-self: center;
+  color: var(--accent);
 }
 
 .details-card {
@@ -1146,6 +1337,15 @@ select {
 
   .primary-button {
     width: 100%;
+  }
+
+  .restore-modal {
+    grid-template-columns: 1fr;
+    text-align: center;
+  }
+
+  .restore-modal svg {
+    justify-self: center;
   }
 
   .stats-grid,

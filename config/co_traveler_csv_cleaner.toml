@@ -34,6 +34,10 @@ header = "BSSID"
 aggregate = "group_key"
 
 [[output_columns]]
+computed = "total_sightings"
+header = "Total Sightings"
+
+[[output_columns]]
 source = "ssid"
 header = "SSID"
 aggregate = "distinct_list"
@@ -58,11 +62,12 @@ computed = "unique_mgrs_count"
 header = "MGRS Unique Count"
 
 [sort]
-# Sort by MGRS Unique Count greatest to least.
+# Sort by MGRS Unique Count greatest to least, then by raw sighting volume.
 enabled = true
 case_sensitive = false
 rules = [
-  { column = "MGRS Unique Count", direction = "desc", value_type = "number" }
+  { column = "MGRS Unique Count", direction = "desc", value_type = "number" },
+  { column = "Total Sightings", direction = "desc", value_type = "number" }
 ]
 
 [color_coding]
