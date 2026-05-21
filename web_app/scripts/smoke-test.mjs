@@ -137,19 +137,27 @@ assert.equal(
   18
 );
 assert.equal(DEFAULT_THREAT_CONFIG.maxDetectionRadiusMeters, 50);
-assert.equal(DEFAULT_THREAT_CONFIG.minScansLow, 8);
+assert.equal(DEFAULT_THREAT_CONFIG.minScansLow, 4);
+assert.equal(DEFAULT_THREAT_CONFIG.maxScansLow, 11);
+assert.equal(DEFAULT_THREAT_CONFIG.minScansMedium, 12);
+assert.equal(DEFAULT_THREAT_CONFIG.maxScansMedium, 18);
+assert.equal(DEFAULT_THREAT_CONFIG.minScansHigh, 19);
+assert.equal(DEFAULT_THREAT_CONFIG.maxScansHigh, 25);
 assert.equal(DEFAULT_THREAT_CONFIG.minPathSpanMetersHigh, 1250);
 assert.deepEqual(Object.keys(DEFAULT_THREAT_CONFIG), [
   'enabled',
   'sameLocationMeters',
   'maxDetectionRadiusMeters',
   'minScansLow',
+  'maxScansLow',
   'minDurationMinutesLow',
   'minPathSpanMetersLow',
   'minScansMedium',
+  'maxScansMedium',
   'minDurationMinutesMedium',
   'minPathSpanMetersMedium',
   'minScansHigh',
+  'maxScansHigh',
   'minDurationMinutesHigh',
   'minPathSpanMetersHigh',
   'maxThreatsToShow'
@@ -200,6 +208,16 @@ assert.ok(qualifyingThreatMapData.points.every((point) => Number(point.Accuracy)
 assert.match(threats[0].reason, /scanner location/);
 assert.match(threats[0].reason, /detection radius/);
 assert.match(threats[0].reason, /outside radius or MGRS criteria ignored/);
+const cappedHighThreats = analyzeThreats(
+  threatParsed.observations,
+  normalizeThreatConfig({
+    ...focusedThreatConfig,
+    minScansHigh: 3,
+    maxScansHigh: 5
+  })
+);
+assert.equal(cappedHighThreats.length, 1);
+assert.equal(cappedHighThreats[0].severity, 'low');
 assert.deepEqual(countBySeverity(threats), {all: 1, high: 1, medium: 0, low: 0});
 assert.equal(searchTerm('  FOLLOWER  '), 'follower');
 assert.equal(threatMatchesSearch(threats[0], 'follower'), true);
@@ -235,6 +253,8 @@ assert.equal(deviceMatchesSearch(null, null, 'missing'), false);
 assert.equal(normalizeThreatConfig(null).maxDetectionRadiusMeters, DEFAULT_THREAT_CONFIG.maxDetectionRadiusMeters);
 assert.deepEqual(Object.keys(normalizeThreatConfig()), Object.keys(DEFAULT_THREAT_CONFIG));
 assert.equal(normalizeThreatConfig({minScansLow: 9}).minScansLow, 9);
+assert.equal(normalizeThreatConfig({maxScansLow: 10}).maxScansLow, 10);
+assert.equal(normalizeThreatConfig({minScansLow: 9, maxScansLow: 7}).maxScansLow, 9);
 
 const repeatedLocationCsv = `BSSID,SSID,Accuracy,Event Time,Device Name,MGRS,Latitude,Longitude
 aa:bb:cc:00:00:77,STATIONARY,20,2026-04-30 12:00:00,scanner,36RXU1000010000,29.9500,34.9300

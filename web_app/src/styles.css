@@ -841,7 +841,7 @@ select {
 }
 
 .settings-grid.compact {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   margin-top: 8px;
 }
 
@@ -862,6 +862,13 @@ select {
   font-size: 12px;
   font-weight: 800;
   padding: 0 8px 0 0;
+}
+
+.criteria-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
 }
 
 .setting-field {
@@ -1353,7 +1360,8 @@ select {
   .detail-table,
   .scope-note,
   .settings-grid,
-  .settings-grid.compact {
+  .settings-grid.compact,
+  .criteria-actions {
     grid-template-columns: 1fr;
   }
 }

@@ -2,13 +2,16 @@ export const DEFAULT_THREAT_CONFIG = Object.freeze({
   enabled: true,
   sameLocationMeters: 50,
   maxDetectionRadiusMeters: 50,
-  minScansLow: 8,
+  minScansLow: 4,
+  maxScansLow: 11,
   minDurationMinutesLow: 30,
   minPathSpanMetersLow: 250,
   minScansMedium: 12,
+  maxScansMedium: 18,
   minDurationMinutesMedium: 90,
   minPathSpanMetersMedium: 750,
-  minScansHigh: 25,
+  minScansHigh: 19,
+  maxScansHigh: 25,
   minDurationMinutesHigh: 180,
   minPathSpanMetersHigh: 1250,
   maxThreatsToShow: 10
@@ -32,6 +35,29 @@ function toPositiveInteger(value, fallback, {allowZero = false} = {}) {
   return Math.round(toPositiveNumber(value, fallback, {allowZero}));
 }
 
+function toOptionalPositiveInteger(value, fallback = null) {
+  if (value === null || value === undefined || value === '') {
+    return fallback;
+  }
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) {
+    return fallback;
+  }
+  return Math.round(number);
+}
+
+function normalizeScanRange(merged, suffix) {
+  const minName = `minScans${suffix}`;
+  const maxName = `maxScans${suffix}`;
+  const minScans = toPositiveInteger(merged[minName], DEFAULT_THREAT_CONFIG[minName]);
+  const maxScans = toOptionalPositiveInteger(merged[maxName], DEFAULT_THREAT_CONFIG[maxName]);
+
+  return {
+    [minName]: minScans,
+    [maxName]: maxScans === null ? null : Math.max(minScans, maxScans)
+  };
+}
+
 export function normalizeThreatConfig(rawConfig = {}) {
   const merged = {
     ...DEFAULT_THREAT_CONFIG,
@@ -46,7 +72,7 @@ export function normalizeThreatConfig(rawConfig = {}) {
     enabled: Boolean(merged.enabled),
     sameLocationMeters: toPositiveNumber(merged.sameLocationMeters, DEFAULT_THREAT_CONFIG.sameLocationMeters),
     maxDetectionRadiusMeters,
-    minScansLow: toPositiveInteger(merged.minScansLow, DEFAULT_THREAT_CONFIG.minScansLow),
+    ...normalizeScanRange(merged, 'Low'),
     minDurationMinutesLow: toPositiveNumber(
       merged.minDurationMinutesLow,
       DEFAULT_THREAT_CONFIG.minDurationMinutesLow,
@@ -57,7 +83,7 @@ export function normalizeThreatConfig(rawConfig = {}) {
       DEFAULT_THREAT_CONFIG.minPathSpanMetersLow,
       {allowZero: true}
     ),
-    minScansMedium: toPositiveInteger(merged.minScansMedium, DEFAULT_THREAT_CONFIG.minScansMedium),
+    ...normalizeScanRange(merged, 'Medium'),
     minDurationMinutesMedium: toPositiveNumber(
       merged.minDurationMinutesMedium,
       DEFAULT_THREAT_CONFIG.minDurationMinutesMedium,
@@ -68,7 +94,7 @@ export function normalizeThreatConfig(rawConfig = {}) {
       DEFAULT_THREAT_CONFIG.minPathSpanMetersMedium,
       {allowZero: true}
     ),
-    minScansHigh: toPositiveInteger(merged.minScansHigh, DEFAULT_THREAT_CONFIG.minScansHigh),
+    ...normalizeScanRange(merged, 'High'),
     minDurationMinutesHigh: toPositiveNumber(
       merged.minDurationMinutesHigh,
       DEFAULT_THREAT_CONFIG.minDurationMinutesHigh,

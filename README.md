@@ -222,7 +222,10 @@ Threat detection defaults are loaded from:
 web_app/public/threat-detection-config.json
 ```
 
-The web app also lets users adjust the active threat criteria in the sidebar and stores those changes in the browser.
+Each severity can define minimum and maximum unique scanner-location clusters with
+the `minScans*` and `maxScans*` fields. Set a `maxScans*` value to `null` for no
+upper limit. The web app also lets users adjust the active threat criteria in
+the sidebar and stores those changes in the browser.
 
 Run the web app smoke test:
 

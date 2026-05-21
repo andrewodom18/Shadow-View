@@ -235,19 +235,26 @@ function distinctValues(values) {
   );
 }
 
+function uniqueLocationCountInRange(metrics, minScans, maxScans) {
+  return (
+    metrics.scanCount >= minScans &&
+    (maxScans === null || maxScans === undefined || metrics.scanCount <= maxScans)
+  );
+}
+
 function evaluateSeverity(metrics, config) {
   const scannerPathSpanMeters = metrics.scannerPathSpanMeters ?? metrics.pathSpanMeters;
   const checks = {
     high:
-      metrics.scanCount >= config.minScansHigh &&
+      uniqueLocationCountInRange(metrics, config.minScansHigh, config.maxScansHigh) &&
       metrics.durationMinutes >= config.minDurationMinutesHigh &&
       scannerPathSpanMeters >= config.minPathSpanMetersHigh,
     medium:
-      metrics.scanCount >= config.minScansMedium &&
+      uniqueLocationCountInRange(metrics, config.minScansMedium, config.maxScansMedium) &&
       metrics.durationMinutes >= config.minDurationMinutesMedium &&
       scannerPathSpanMeters >= config.minPathSpanMetersMedium,
     low:
-      metrics.scanCount >= config.minScansLow &&
+      uniqueLocationCountInRange(metrics, config.minScansLow, config.maxScansLow) &&
       metrics.durationMinutes >= config.minDurationMinutesLow &&
       scannerPathSpanMeters >= config.minPathSpanMetersLow
   };

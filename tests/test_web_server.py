@@ -73,6 +73,10 @@ class WebServerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.static_dir = tempfile.TemporaryDirectory()
         Path(self.static_dir.name, "index.html").write_text("<!doctype html><p>Shadow View</p>", encoding="utf-8")
+        asset_dir = Path(self.static_dir.name, "assets")
+        asset_dir.mkdir()
+        Path(asset_dir, "app.js").write_text("export const ready = true;\n", encoding="utf-8")
+        Path(asset_dir, "data.wasm").write_bytes(b"\0asm")
         self.server = create_server("127.0.0.1", 0, self.static_dir.name)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -94,6 +98,15 @@ class WebServerTests(unittest.TestCase):
         self.assertIn("auto", cleaner_ids)
         self.assertIn("co_traveler", cleaner_ids)
         self.assertIn("rogue_tower", cleaner_ids)
+
+    def test_static_module_assets_use_browser_safe_mime_types(self) -> None:
+        with urllib.request.urlopen(f"{self.base_url}/assets/app.js", timeout=5) as response:
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.headers.get_content_type(), "application/javascript")
+
+        with urllib.request.urlopen(f"{self.base_url}/assets/data.wasm", timeout=5) as response:
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.headers.get_content_type(), "application/wasm")
 
     def test_clean_endpoint_returns_requested_outputs_zip(self) -> None:
         body, content_type = multipart_body(

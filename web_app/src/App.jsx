@@ -11,6 +11,7 @@ import {
   Loader2,
   MapPin,
   RotateCcw,
+  Save,
   Search,
   SlidersHorizontal,
   Upload,
@@ -396,7 +397,12 @@ function selectedPointScreenPosition(point, mapState, mapSize) {
   return {x, y};
 }
 
-function SettingNumber({disabled, help, label, min = 0, step = 1, value, onChange}) {
+function SettingNumber({allowEmpty = false, disabled, help, label, min = 0, placeholder, step = 1, value, onChange}) {
+  const handleChange = (event) => {
+    const nextValue = event.target.value;
+    onChange(allowEmpty && nextValue === '' ? null : Number(nextValue));
+  };
+
   return (
     <label className="setting-field" title={help}>
       <span>{label}</span>
@@ -404,11 +410,12 @@ function SettingNumber({disabled, help, label, min = 0, step = 1, value, onChang
         aria-label={label}
         disabled={disabled}
         min={min}
-        onChange={(event) => onChange(Number(event.target.value))}
+        onChange={handleChange}
+        placeholder={placeholder}
         step={step}
         title={help}
         type="number"
-        value={value}
+        value={value ?? ''}
       />
     </label>
   );
@@ -424,10 +431,20 @@ function SeveritySettings({config, disabled, label, level, onValue}) {
         <SettingNumber
           disabled={disabled}
           help="Minimum scanner-location clusters where this BSSID must appear. Repeated scans inside the same location radius count once."
-          label="Unique locations"
+          label="Min locations"
           min={1}
           value={config[`minScans${suffix}`]}
           onChange={(value) => onValue(`minScans${suffix}`, value)}
+        />
+        <SettingNumber
+          allowEmpty
+          disabled={disabled}
+          help="Maximum scanner-location clusters where this BSSID may appear. Leave blank for no maximum."
+          label="Max locations"
+          min={config[`minScans${suffix}`] ?? 1}
+          placeholder="No max"
+          value={config[`maxScans${suffix}`]}
+          onChange={(value) => onValue(`maxScans${suffix}`, value)}
         />
         <SettingNumber
           disabled={disabled}
@@ -450,9 +467,22 @@ function SeveritySettings({config, disabled, label, level, onValue}) {
   );
 }
 
-function ThreatSettings({config, disabled, onChange, onReset}) {
+function threatConfigSignature(config) {
+  return JSON.stringify(normalizeThreatConfig(config));
+}
+
+function ThreatSettings({config, disabled, onReset, onSave}) {
+  const [draftConfig, setDraftConfig] = useState(config);
+  const configSignature = useMemo(() => threatConfigSignature(config), [config]);
+  const draftSignature = useMemo(() => threatConfigSignature(draftConfig), [draftConfig]);
+  const canSave = draftSignature !== configSignature;
+
+  useEffect(() => {
+    setDraftConfig(config);
+  }, [config, configSignature]);
+
   const setConfigValue = (name, value) => {
-    onChange({...config, [name]: value});
+    setDraftConfig((current) => normalizeThreatConfig({...current, [name]: value}));
   };
 
   return (
@@ -470,7 +500,7 @@ function ThreatSettings({config, disabled, onChange, onReset}) {
           <span>Detection</span>
           <input
             aria-label="Detection"
-            checked={config.enabled}
+            checked={draftConfig.enabled}
             disabled={disabled}
             onChange={(event) => setConfigValue('enabled', event.target.checked)}
             title="Turn threat matching on or off for the loaded CSV."
@@ -482,7 +512,7 @@ function ThreatSettings({config, disabled, onChange, onReset}) {
           help="Scanner MGRS points within this distance count as the same location."
           label="Same location (m)"
           min={1}
-          value={config.sameLocationMeters}
+          value={draftConfig.sameLocationMeters}
           onChange={(value) => setConfigValue('sameLocationMeters', value)}
         />
         <SettingNumber
@@ -490,7 +520,7 @@ function ThreatSettings({config, disabled, onChange, onReset}) {
           help="Only scans with Accuracy at or below this radius qualify."
           label="Max radius (m)"
           min={1}
-          value={config.maxDetectionRadiusMeters}
+          value={draftConfig.maxDetectionRadiusMeters}
           onChange={(value) => setConfigValue('maxDetectionRadiusMeters', value)}
         />
         <SettingNumber
@@ -498,35 +528,46 @@ function ThreatSettings({config, disabled, onChange, onReset}) {
           help="Maximum number of matching BSSIDs shown in the threat list."
           label="Max list items"
           min={1}
-          value={config.maxThreatsToShow}
+          value={draftConfig.maxThreatsToShow}
           onChange={(value) => setConfigValue('maxThreatsToShow', value)}
         />
       </div>
       <SeveritySettings
-        config={config}
+        config={draftConfig}
         disabled={disabled}
         label="Low"
         level="low"
         onValue={setConfigValue}
       />
       <SeveritySettings
-        config={config}
+        config={draftConfig}
         disabled={disabled}
         label="Medium"
         level="medium"
         onValue={setConfigValue}
       />
       <SeveritySettings
-        config={config}
+        config={draftConfig}
         disabled={disabled}
         label="High"
         level="high"
         onValue={setConfigValue}
       />
-      <button className="tertiary-button" disabled={disabled} onClick={onReset} type="button">
-        <RotateCcw aria-hidden="true" size={14} />
-        <span>Reset Criteria</span>
-      </button>
+      <div className="criteria-actions">
+        <button className="tertiary-button" disabled={disabled} onClick={onReset} type="button">
+          <RotateCcw aria-hidden="true" size={14} />
+          <span>Reset Criteria</span>
+        </button>
+        <button
+          className="primary-button"
+          disabled={disabled || !canSave}
+          onClick={() => onSave(draftConfig)}
+          type="button"
+        >
+          <Save aria-hidden="true" size={14} />
+          <span>Save Criteria</span>
+        </button>
+      </div>
     </details>
   );
 }
@@ -992,8 +1033,9 @@ export default function App() {
       })
       .catch(() => {
         if (!controller.signal.aborted) {
-          setBaseThreatConfig(normalizeThreatConfig());
-          setThreatConfig(normalizeThreatConfig());
+          const defaultConfig = normalizeThreatConfig();
+          setBaseThreatConfig(defaultConfig);
+          setThreatConfig(defaultConfig);
         }
       });
 
@@ -1098,8 +1140,9 @@ export default function App() {
     setCleanOutputs((current) => ({...current, [name]: checked}));
   }, []);
 
-  const handleThreatConfigChange = useCallback((nextConfig) => {
-    setThreatConfig(saveThreatConfig(nextConfig));
+  const handleThreatConfigSave = useCallback((nextConfig) => {
+    const savedConfig = saveThreatConfig(nextConfig);
+    setThreatConfig(savedConfig);
   }, []);
 
   const handleThreatConfigReset = useCallback(() => {
@@ -1622,8 +1665,8 @@ export default function App() {
               <ThreatSettings
                 config={threatConfig}
                 disabled={isParsing}
-                onChange={handleThreatConfigChange}
                 onReset={handleThreatConfigReset}
+                onSave={handleThreatConfigSave}
               />
             </section>
           </>

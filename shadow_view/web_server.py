@@ -25,6 +25,15 @@ DEFAULT_STATIC_DIR = PROJECT_ROOT / "web_app" / "dist"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 MAX_UPLOAD_BYTES = 250 * 1024 * 1024
+STATIC_CONTENT_TYPES = {
+    ".css": "text/css; charset=utf-8",
+    ".html": "text/html; charset=utf-8",
+    ".js": "application/javascript; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".mjs": "application/javascript; charset=utf-8",
+    ".svg": "image/svg+xml",
+    ".wasm": "application/wasm",
+}
 
 
 @dataclass(frozen=True)
@@ -172,6 +181,12 @@ class ShadowViewWebHandler(SimpleHTTPRequestHandler):
 
     def log_message(self, format: str, *args: Any) -> None:
         return
+
+    def guess_type(self, path: str) -> str:
+        content_type = STATIC_CONTENT_TYPES.get(Path(path).suffix.lower())
+        if content_type is not None:
+            return content_type
+        return super().guess_type(path)
 
     def end_headers(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
