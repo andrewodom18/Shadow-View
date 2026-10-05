@@ -1,22 +1,16 @@
 name: Build Windows App
 
 on:
-  workflow_dispatch:
-    inputs:
-      release_tag:
-        description: Optional GitHub release tag to attach the built assets to
-        required: false
-        type: string
-  release:
-    types:
-      - published
   push:
     branches:
-      - dev
       - main
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: shadow-view-windows-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-windows:
@@ -100,22 +94,3 @@ jobs:
         with:
           name: Shadow View USB Bundle - Windows
           path: dist/Shadow View USB Bundle
-
-      - name: Attach assets to GitHub release
-        if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist/Shadow View CSV Cleaner.exe
-            dist/Shadow View Web App.exe
-            dist/Shadow View USB Bundle.zip
-
-      - name: Attach assets to selected release
-        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ inputs.release_tag }}
-          files: |
-            dist/Shadow View CSV Cleaner.exe
-            dist/Shadow View Web App.exe
-            dist/Shadow View USB Bundle.zip

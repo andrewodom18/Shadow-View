@@ -111,14 +111,16 @@ scripts\build_windows_app.bat
 
 Build the USB-ready Windows bundle from GitHub on any computer, including a Mac:
 
-1. Push the repo to GitHub.
+1. Push the release-ready changes to `main`. The build runs automatically.
 2. Open the repo's **Actions** tab.
 3. Select **Build Windows App**.
-4. Click **Run workflow**.
-5. To also attach the files to an existing GitHub release, enter that release tag in `release_tag`.
-6. Open the completed run.
-7. Download the artifact named **Shadow View USB Bundle - Windows**.
-8. Unzip the downloaded artifact and copy its contents to the USB drive.
+4. Open the completed run for that push.
+5. Download the artifact named **Shadow View USB Bundle - Windows**.
+6. Unzip the downloaded artifact and copy its contents to the USB drive.
+
+To attach the built files to a GitHub release, download the run artifacts and
+upload them to the release separately. Publishing a release does not start a
+new Actions run.
 
 The bundle includes:
 
