@@ -111,12 +111,11 @@ scripts\build_windows_app.bat
 
 Or build it from GitHub on any computer, including a Mac:
 
-1. Push the repo to GitHub.
+1. Push the release-ready changes to `main`. The build runs automatically.
 2. Open the repo's **Actions** tab.
 3. Select **Build Windows App**.
-4. Click **Run workflow**.
-5. Open the completed run.
-6. Download the artifact named **Shadow View CSV Cleaner - Windows**.
+4. Open the completed run for that push.
+5. Download the artifact named **Shadow View CSV Cleaner - Windows**.
 
 That creates:
 

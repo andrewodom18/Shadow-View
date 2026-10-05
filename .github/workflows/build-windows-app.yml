@@ -1,11 +1,16 @@
 name: Build Windows App
 
 on:
-  workflow_dispatch:
   push:
     branches:
-      - dev
       - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shadow-view-windows-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-windows:
